@@ -1,0 +1,9 @@
+services:
+  nginx:
+    ports:
+      - "443:8443"
+  server:
+    environment:
+      DEV_MODE: "0"
+      DEV_INSECURE_COOKIES: "0"
+      REDIS_REQUIRE_REPLICA: "1"

@@ -10,11 +10,16 @@ WORKDIR /app/server
 COPY server/go.* ./
 RUN go mod download
 COPY server/ ./
-RUN CGO_ENABLED=0 go build -o /cordova-server ./cmd/cordova-server
+RUN CGO_ENABLED=0 go build -o /cordova-server ./cmd/cordova-server \
+ && CGO_ENABLED=0 go build -o /cordova-tokenizer ./cmd/tokenizer \
+ && CGO_ENABLED=0 go build -o /cordova-payments ./cmd/payments \
+ && CGO_ENABLED=0 go build -o /cordova-ranker ./cmd/ranker \
+ && CGO_ENABLED=0 go build -o /cordova-event-publisher ./cmd/event-publisher \
+ && CGO_ENABLED=0 go build -o /cordova-projections ./cmd/projections
 
 FROM alpine:3.21
 WORKDIR /app
-COPY --from=back /cordova-server /app/cordova-server
+COPY --from=back /cordova-* /app/
 COPY --from=front /app/frontend/build /app/frontend-build
 EXPOSE 8080
 CMD ["/app/cordova-server"]

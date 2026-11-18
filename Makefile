@@ -1,7 +1,11 @@
-.PHONY: test build smoke
+.PHONY: test build smoke config-check
 
-test:
+config-check:
+	bash scripts/config-check.sh
+
+test: config-check
 	$(MAKE) -C server test
+	go build -C server ./...
 	cd node && cargo fmt --check && cargo clippy -- -D warnings && cargo test
 	cd frontend && npm run check && npm test
 

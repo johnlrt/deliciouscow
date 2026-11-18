@@ -1,0 +1,17 @@
+groups:
+  - name: cordova-ops
+    rules:
+      - alert: CordovaServerDown
+        expr: up{job="cordova-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Cordova gateway metrics endpoint unreachable"
+      - alert: CordovaHighRequestFailureRate
+        expr: rate(cordova_requests_failed_total[5m]) / clamp_min(rate(cordova_requests_total[5m]), 1) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cordova request failure rate exceeded 5%"
