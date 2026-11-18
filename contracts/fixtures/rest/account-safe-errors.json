@@ -1,0 +1,23 @@
+[
+  {"error":{"message":"Synthetic safe error.","type":"invalid_request_error","param":null,"code":"invalid_request"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"invalid_request_error","param":null,"code":"unsupported_parameter"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"authentication_error","param":null,"code":"unauthenticated"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"permission_error","param":null,"code":"forbidden"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"permission_error","param":null,"code":"csrf_failed"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"not_found"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"conflict"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"rate_limit_error","param":null,"code":"insufficient_funds"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"rate_limit_error","param":null,"code":"spend_cap_exceeded"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"rate_limit_error","param":null,"code":"rate_limited"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"invalid_request_error","param":null,"code":"model_not_found"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"model_warming"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"no_capacity"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"node_failed"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"timeout"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"storage_unavailable"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"tokenizer_unavailable"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"wallet_unavailable"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"server_error","param":null,"code":"replay_unavailable"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"permission_error","param":null,"code":"verification_required"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"},
+  {"error":{"message":"Synthetic safe error.","type":"permission_error","param":null,"code":"enrollment_pending"},"request_id":"c9eb01e9-899f-4edb-87fd-66e585ec9f79"}
+]

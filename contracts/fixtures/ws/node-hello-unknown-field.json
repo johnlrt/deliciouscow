@@ -1,0 +1,26 @@
+{
+  "v": 1,
+  "type": "hello",
+  "message_id": "4e345523-1a8c-4f4b-9d48-0593cf3e7eca",
+  "request_id": null,
+  "session_id": null,
+  "seq": 1,
+  "sent_at": "2026-10-09T10:00:00Z",
+  "payload": {
+    "node_id": "706134d8-0590-437c-ab24-bb9c396c815b",
+    "node_version": "0.2.0",
+    "protocol_versions": [1],
+    "hardware": {
+      "platform": "linux",
+      "arch": "x86_64",
+      "backend": "cpu",
+      "gpu_name": null,
+      "reported_total_vram_bytes": 0,
+      "reported_free_vram_bytes": 0,
+      "ram_bytes": 8589934592
+    },
+    "hwid_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "error": null,
+  "unexpected": true
+}

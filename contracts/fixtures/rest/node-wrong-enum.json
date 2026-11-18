@@ -1,0 +1,26 @@
+{
+  "id": "706134d8-0590-437c-ab24-bb9c396c815b",
+  "name": "single-host",
+  "status": "ready",
+  "rank": 1,
+  "rank_updated_at": "2026-10-09T10:00:00Z",
+  "hardware": {
+    "platform": "windows",
+    "arch": "x86_64",
+    "backend": "cpu",
+    "gpu_name": null,
+    "reported_total_vram_bytes": 0,
+    "reported_free_vram_bytes": 0,
+    "ram_bytes": 68719476736
+  },
+  "verified_capacity_bytes": 34359738368,
+  "measured_tokens_per_second": 12.5,
+  "latency_ms": 80,
+  "uptime_ratio": 0.99,
+  "success_ratio": 0.98,
+  "last_seen_at": "2026-10-09T10:00:00Z",
+  "models": [],
+  "earnings_pending_piconero": "0",
+  "earnings_available_piconero": "0",
+  "hold_until": null
+}

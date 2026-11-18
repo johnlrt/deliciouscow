@@ -1,0 +1,5 @@
+{
+  "node_id": "00000000-0000-4000-8000-000000000002",
+  "node_secret": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "server_origin": "https://nodes.example.test"
+}

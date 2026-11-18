@@ -1,0 +1,12 @@
+{
+  "id": "chatcmpl-4e345523-1a8c-4f4b-9d48-0593cf3e7eca",
+  "object": "chat.completion",
+  "created": 1791530400,
+  "model": "cordova-chat-small-v1",
+  "choices": [{
+    "index": 0,
+    "message": {"role": "assistant", "content": "[MOCK] Synthetic response."},
+    "finish_reason": "stop"
+  }],
+  "usage": {"prompt_tokens": 1, "completion_tokens": 3, "total_tokens": 4}
+}

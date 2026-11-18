@@ -1,0 +1,7 @@
+{
+  "model": "cordova-chat-small-v1",
+  "messages": [
+    {"role": "system", "content": "Answer the next question."},
+    {"role": "assistant", "content": "Ready."}
+  ]
+}

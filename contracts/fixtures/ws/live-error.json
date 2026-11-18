@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "type": "error",
+  "message_id": "4e345523-1a8c-4f4b-9d48-0593cf3e7eca",
+  "request_id": null,
+  "session_id": "c9eb01e9-899f-4edb-87fd-66e585ec9f79",
+  "seq": 2,
+  "sent_at": "2026-10-09T10:00:01Z",
+  "payload": {
+    "operation_type": "live.subscribe",
+    "attempt_id": null,
+    "lease_id": null,
+    "command_id": null
+  },
+  "error": {"code": "invalid_message", "message": "Invalid live message.", "retryable": false}
+}

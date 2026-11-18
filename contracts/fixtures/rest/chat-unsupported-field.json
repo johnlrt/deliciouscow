@@ -1,0 +1,5 @@
+{
+  "model": "cordova-chat-small-v1",
+  "messages": [{"role": "user", "content": "Hello"}],
+  "tools": []
+}

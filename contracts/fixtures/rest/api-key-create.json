@@ -1,0 +1,11 @@
+{
+  "name": "smoke test",
+  "permissions": [
+    "chat:write",
+    "models:read"
+  ],
+  "model_ids": [
+    "cordova-chat-small-v1"
+  ],
+  "daily_spend_cap_piconero": "0"
+}

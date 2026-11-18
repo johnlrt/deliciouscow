@@ -1,0 +1,18 @@
+{
+  "id": "706134d8-0590-437c-ab24-bb9c396c815b",
+  "name": "new-device",
+  "status": "enrolling",
+  "rank": null,
+  "rank_updated_at": null,
+  "hardware": null,
+  "verified_capacity_bytes": null,
+  "measured_tokens_per_second": null,
+  "latency_ms": null,
+  "uptime_ratio": null,
+  "success_ratio": null,
+  "last_seen_at": null,
+  "models": [],
+  "earnings_pending_piconero": null,
+  "earnings_available_piconero": null,
+  "hold_until": null
+}

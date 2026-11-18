@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "live.ping",
+  "message_id": "4e345523-1a8c-4f4b-9d48-0593cf3e7eca",
+  "request_id": null,
+  "session_id": null,
+  "seq": 2,
+  "sent_at": "2026-10-09T10:00:01Z",
+  "payload": {"time": "2026-10-09T10:00:01Z"},
+  "error": null
+}

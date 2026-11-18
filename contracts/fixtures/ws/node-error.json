@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "type": "error",
+  "message_id": "4e345523-1a8c-4f4b-9d48-0593cf3e7eca",
+  "request_id": "706134d8-0590-437c-ab24-bb9c396c815b",
+  "session_id": "c9eb01e9-899f-4edb-87fd-66e585ec9f79",
+  "seq": 4,
+  "sent_at": "2026-10-09T10:00:02Z",
+  "payload": {
+    "operation_type": "inference.start",
+    "attempt_id": "b1170ebe-dcd3-475c-bd61-3a4b902ae8af",
+    "lease_id": "c386a5ce-18b9-4fa5-9e96-ddb8bdbd1b4a",
+    "command_id": null
+  },
+  "error": {"code": "internal_error", "message": "Operation failed.", "retryable": false}
+}

@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "live.resync",
+  "message_id": "c9eb01e9-899f-4edb-87fd-66e585ec9f79",
+  "request_id": null,
+  "session_id": "4e345523-1a8c-4f4b-9d48-0593cf3e7eca",
+  "seq": 2,
+  "sent_at": "2026-10-09T10:00:00Z",
+  "payload": {"reason": "gap"},
+  "error": null
+}

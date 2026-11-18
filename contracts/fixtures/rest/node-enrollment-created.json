@@ -1,0 +1,8 @@
+{
+  "enrollment_id": "00000000-0000-4000-8000-000000000001",
+  "user_code": "ABCDE-FGHJK-MNP",
+  "device_code": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "verification_uri": "https://nodes.example.test/dashboard/nodes",
+  "expires_at": "2026-10-09T12:10:00Z",
+  "poll_interval_seconds": 5
+}

@@ -1,0 +1,10 @@
+{
+  "error": {
+    "message": "A request with this idempotency key already finished; its response is not retained.",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "replay_unavailable"
+  },
+  "request_id": "00000000-0000-4000-8000-000000000101",
+  "original_request_id": "00000000-0000-4000-8000-000000000102"
+}

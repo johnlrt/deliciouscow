@@ -1,0 +1,4 @@
+{
+  "error": {"message": "Synthetic safe error.", "type": "server_error", "param": null, "code": "private_internal_error"},
+  "request_id": "c9eb01e9-899f-4edb-87fd-66e585ec9f79"
+}

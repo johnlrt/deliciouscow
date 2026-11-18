@@ -1,0 +1,10 @@
+{
+  "model": "cordova-chat-small-v1",
+  "messages": [
+    {"role": "system", "content": "Be concise."},
+    {"role": "user", "content": "Hello"}
+  ],
+  "max_tokens": 32,
+  "stream": true,
+  "stream_options": {"include_usage": true}
+}

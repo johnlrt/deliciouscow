@@ -1,0 +1,11 @@
+{
+  "request_id": "00000000-0000-4000-8000-000000000002",
+  "model_id": "cordova-chat-small-v1",
+  "status": "settled",
+  "input_tokens": 2,
+  "output_tokens": 3,
+  "charged_piconero": "5",
+  "latency_ms": 1250,
+  "created_at": "2026-10-09T12:00:00Z",
+  "finished_at": "2026-10-09T12:00:01.25Z"
+}

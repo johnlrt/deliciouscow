@@ -1,0 +1,307 @@
+[
+  {
+    "file": "rest/chat-buffered.json",
+    "schema": "openapi.yaml#/components/schemas/ChatCompletionRequest",
+    "valid": true
+  },
+  {
+    "file": "rest/chat-stream.json",
+    "schema": "openapi.yaml#/components/schemas/ChatCompletionRequest",
+    "valid": true
+  },
+  {
+    "file": "rest/chat-unsupported-field.json",
+    "schema": "openapi.yaml#/components/schemas/ChatCompletionRequest",
+    "valid": false
+  },
+  {
+    "file": "rest/chat-null-content.json",
+    "schema": "openapi.yaml#/components/schemas/ChatCompletionRequest",
+    "valid": false
+  },
+  {
+    "file": "rest/chat-no-user.json",
+    "schema": "openapi.yaml#/components/schemas/ChatCompletionRequest",
+    "valid": false
+  },
+  {
+    "file": "rest/models-list.json",
+    "schema": "openapi.yaml#/components/schemas/ModelList",
+    "valid": true
+  },
+  {
+    "file": "rest/chat-response.json",
+    "schema": "openapi.yaml#/components/schemas/ChatCompletion",
+    "valid": true
+  },
+  {
+    "file": "rest/session-valid.json",
+    "schema": "openapi.yaml#/components/schemas/SessionView",
+    "valid": true
+  },
+  {
+    "file": "rest/session-missing-account-id.json",
+    "schema": "openapi.yaml#/components/schemas/SessionView",
+    "valid": false
+  },
+  {
+    "file": "rest/registration-valid.json",
+    "schema": "openapi.yaml#/components/schemas/RegistrationResult",
+    "valid": true
+  },
+  {
+    "file": "rest/usage-valid.json",
+    "schema": "openapi.yaml#/components/schemas/UsagePage",
+    "valid": true
+  },
+  {
+    "file": "rest/usage-numeric-money.json",
+    "schema": "openapi.yaml#/components/schemas/UsagePage",
+    "valid": false
+  },
+  {
+    "file": "rest/usage-wrong-enum.json",
+    "schema": "openapi.yaml#/components/schemas/UsagePage",
+    "valid": false
+  },
+  {
+    "file": "rest/node-valid.json",
+    "schema": "openapi.yaml#/components/schemas/Node",
+    "valid": true
+  },
+  {
+    "file": "rest/node-wrong-enum.json",
+    "schema": "openapi.yaml#/components/schemas/Node",
+    "valid": false
+  },
+  {
+    "file": "rest/node-unmeasured.json",
+    "schema": "openapi.yaml#/components/schemas/Node",
+    "valid": true
+  },
+  {
+    "file": "rest/node-page.json",
+    "schema": "openapi.yaml#/components/schemas/NodePage",
+    "valid": true
+  },
+  {
+    "file": "rest/node-link-request.json",
+    "schema": "openapi.yaml#/components/schemas/NodeLinkRequest",
+    "valid": true
+  },
+  {
+    "file": "rest/node-link-request-invalid-code.json",
+    "schema": "openapi.yaml#/components/schemas/NodeLinkRequest",
+    "valid": false
+  },
+  {
+    "file": "rest/node-rename-request.json",
+    "schema": "openapi.yaml#/components/schemas/NodeRenameRequest",
+    "valid": true
+  },
+  {
+    "file": "rest/key-valid.json",
+    "schema": "openapi.yaml#/components/schemas/ApiKey",
+    "valid": true
+  },
+  {
+    "file": "rest/key-numeric-cap.json",
+    "schema": "openapi.yaml#/components/schemas/ApiKey",
+    "valid": false
+  },
+  {
+    "file": "rest/balance-valid.json",
+    "schema": "openapi.yaml#/components/schemas/Balance",
+    "valid": true
+  },
+  {
+    "file": "rest/balance-numeric-money.json",
+    "schema": "openapi.yaml#/components/schemas/Balance",
+    "valid": false
+  },
+  {
+    "file": "rest/account-safe-errors.json",
+    "schema": "openapi.yaml#/components/schemas/AccountSafeErrorFixtures",
+    "valid": true
+  },
+  {
+    "file": "rest/account-error-unknown-code.json",
+    "schema": "openapi.yaml#/components/schemas/AccountErrorResponse",
+    "valid": false
+  },
+  {
+    "file": "internal/tokenizer-prepare.json",
+    "schema": "internal/tokenizer.schema.json#/$defs/PrepareRequest",
+    "valid": true
+  },
+  {
+    "file": "internal/tokenizer-count.json",
+    "schema": "internal/tokenizer.schema.json#/$defs/CountRequest",
+    "valid": true
+  },
+  {
+    "file": "internal/tokenizer-response.json",
+    "schema": "internal/tokenizer.schema.json#/$defs/PrepareResponse",
+    "valid": true
+  },
+  {
+    "file": "internal/tokenizer-count-response.json",
+    "schema": "internal/tokenizer.schema.json#/$defs/CountResponse",
+    "valid": true
+  },
+  {
+    "file": "internal/tokenizer-health.json",
+    "schema": "internal/tokenizer.schema.json#/$defs/Health",
+    "valid": true
+  },
+  {
+    "file": "internal/tokenizer-ready.json",
+    "schema": "internal/tokenizer.schema.json#/$defs/Ready",
+    "valid": true
+  },
+  {
+    "file": "internal/tokenizer-bad-hash.json",
+    "schema": "internal/tokenizer.schema.json#/$defs/PrepareResponse",
+    "valid": false
+  },
+  {
+    "file": "ws/node-hello.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": true
+  },
+  {
+    "file": "ws/live-auth.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": true
+  },
+  {
+    "file": "ws/live-auth-short-ticket.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": false
+  },
+  {
+    "file": "ws/live-subscribe.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": true
+  },
+  {
+    "file": "ws/live-event.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": true
+  },
+  {
+    "file": "ws/live-event-missing-resource.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": false
+  },
+  {
+    "file": "ws/live-resync.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": true
+  },
+  {
+    "file": "ws/live-resync-wrong-reason.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": false
+  },
+  {
+    "file": "ws/node-error.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": true
+  },
+  {
+    "file": "ws/live-error.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": true
+  },
+  {
+    "file": "ws/node-hello-unknown-field.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": false
+  },
+  {
+    "file": "ws/live-ping-null-session.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": false
+  },
+  {
+    "file": "rest/register-request.json",
+    "schema": "openapi.yaml#/components/schemas/RegisterRequest",
+    "valid": true
+  },
+  {
+    "file": "rest/register-weak-password.json",
+    "schema": "openapi.yaml#/components/schemas/RegisterRequest",
+    "valid": false
+  },
+  {
+    "file": "rest/api-key-create.json",
+    "schema": "openapi.yaml#/components/schemas/APIKeyCreateRequest",
+    "valid": true
+  },
+  {
+    "file": "rest/api-key-create-unknown-field.json",
+    "schema": "openapi.yaml#/components/schemas/APIKeyCreateRequest",
+    "valid": false
+  },
+  {
+    "file": "rest/usage-list.json",
+    "schema": "openapi.yaml#/components/schemas/UsageList",
+    "valid": true
+  },
+  {
+    "file": "rest/billing-balance.json",
+    "schema": "openapi.yaml#/components/schemas/Balance",
+    "valid": true
+  },
+  {
+    "file": "rest/request-status-settled.json",
+    "schema": "openapi.yaml#/components/schemas/RequestStatus",
+    "valid": true
+  },
+  {
+    "file": "rest/request-status-recovering.json",
+    "schema": "openapi.yaml#/components/schemas/RequestStatus",
+    "valid": true
+  },
+  {
+    "file": "rest/idempotency-replay-unavailable.json",
+    "schema": "openapi.yaml#/components/schemas/ErrorResponse",
+    "valid": true
+  },
+  {
+    "file": "rest/live-ticket.json",
+    "schema": "openapi.yaml#/components/schemas/LiveTicketResponse",
+    "valid": true
+  },
+  {
+    "file": "rest/node-enrollment-request.json",
+    "schema": "openapi.yaml#/components/schemas/NodeEnrollmentRequest",
+    "valid": true
+  },
+  {
+    "file": "rest/node-enrollment-request-unknown.json",
+    "schema": "openapi.yaml#/components/schemas/NodeEnrollmentRequest",
+    "valid": false
+  },
+  {
+    "file": "rest/node-enrollment-created.json",
+    "schema": "openapi.yaml#/components/schemas/NodeEnrollmentCreated",
+    "valid": true
+  },
+  {
+    "file": "rest/node-enrollment-token.json",
+    "schema": "openapi.yaml#/components/schemas/NodeEnrollmentToken",
+    "valid": true
+  },
+  {
+    "file": "rest/node-auth-challenge.json",
+    "schema": "openapi.yaml#/components/schemas/NodeAuthChallenge",
+    "valid": true
+  },
+  {
+    "file": "rest/node-access-token.json",
+    "schema": "openapi.yaml#/components/schemas/NodeAccessToken",
+    "valid": true
+  }
+]

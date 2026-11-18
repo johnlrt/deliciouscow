@@ -1,0 +1,5 @@
+{
+  "model_id": "cordova-chat-small-v1",
+  "catalog_version": "00000000-0000-4000-8000-000000000001",
+  "messages": [{"role": "user", "content": "Hello"}]
+}

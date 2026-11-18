@@ -1,0 +1,16 @@
+{
+  "object": "list",
+  "data": [{
+    "id": "cordova-chat-small-v1",
+    "object": "model",
+    "created": 0,
+    "owned_by": "cordova",
+    "context_tokens": 8192,
+    "max_output_tokens": 2048,
+    "availability": "ready",
+    "input_rate_piconero_per_million": "0",
+    "output_rate_piconero_per_million": "0",
+    "owner_share_bps": 0,
+    "price_version": "00000000-0000-4000-8000-000000000001"
+  }]
+}
