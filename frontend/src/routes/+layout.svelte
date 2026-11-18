@@ -12,6 +12,7 @@
 
 	const navLinks = [
 		['/dashboard', 'Обзор'],
+		['/dashboard/playground', 'Playground'],
 		['/dashboard/nodes', 'Ноды'],
 		['/dashboard/keys', 'Ключи'],
 		['/dashboard/billing', 'Баланс'],

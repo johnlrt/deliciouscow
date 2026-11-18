@@ -13,7 +13,6 @@ import (
 	"github.com/johnlrt/deliciouscow/server/internal/auth"
 	"github.com/johnlrt/deliciouscow/server/internal/events"
 	"github.com/johnlrt/deliciouscow/server/internal/httpapi"
-	"github.com/johnlrt/deliciouscow/server/internal/observability"
 	"github.com/johnlrt/deliciouscow/server/internal/store"
 	"github.com/johnlrt/deliciouscow/server/internal/tokenizer"
 	"github.com/johnlrt/deliciouscow/server/internal/wallet"
@@ -91,9 +90,21 @@ func main() {
 	go worker.Run(workerCtx, st, wal, 15*time.Second)
 
 	if metricsAddr := os.Getenv("METRICS_ADDR"); metricsAddr != "" {
-		m := &observability.Metrics{}
 		mmux := http.NewServeMux()
-		mmux.Handle("/metrics", m.Handler())
+		mmux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+			_ = st.WithReadLock(func(tx *store.Tx) error {
+				var active int64
+				for _, n := range tx.Nodes {
+					if n.Status == "online" {
+						active++
+					}
+				}
+				srv.Metrics.ActiveNodes.Store(active)
+				srv.Metrics.LedgerEntries.Store(int64(len(tx.Ledger)))
+				return nil
+			})
+			srv.Metrics.Handler().ServeHTTP(w, r)
+		})
 		go func() {
 			log.Printf("metrics listening on %s", metricsAddr)
 			_ = http.ListenAndServe(metricsAddr, mmux)

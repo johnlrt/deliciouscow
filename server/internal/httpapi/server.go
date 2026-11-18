@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/johnlrt/deliciouscow/server/internal/auth"
+	"github.com/johnlrt/deliciouscow/server/internal/observability"
 	"github.com/johnlrt/deliciouscow/server/internal/store"
 	"github.com/johnlrt/deliciouscow/server/internal/tokenizer"
 	"github.com/johnlrt/deliciouscow/server/internal/types"
@@ -19,15 +20,16 @@ import (
 )
 
 type Server struct {
-	Store       store.Store
-	Auth        *auth.Config
-	Tok         tokenizer.Tokenizer
-	Wallet      wallet.Wallet
-	Hub         *ws.Hub
-	Catalog     []types.Model
-	DevMode     bool
-	StaticDir   string
-	mux         *http.ServeMux
+	Store     store.Store
+	Auth      *auth.Config
+	Tok       tokenizer.Tokenizer
+	Wallet    wallet.Wallet
+	Hub       *ws.Hub
+	Catalog   []types.Model
+	DevMode   bool
+	StaticDir string
+	Metrics   *observability.Metrics
+	mux       *http.ServeMux
 }
 
 func NewServer(st store.Store, authCfg *auth.Config, tok tokenizer.Tokenizer, wal wallet.Wallet, hub *ws.Hub, catalog []types.Model, devMode bool, staticDir string) *Server {
@@ -40,6 +42,7 @@ func NewServer(st store.Store, authCfg *auth.Config, tok tokenizer.Tokenizer, wa
 		Catalog:   catalog,
 		DevMode:   devMode,
 		StaticDir: staticDir,
+		Metrics:   &observability.Metrics{},
 		mux:       http.NewServeMux(),
 	}
 	s.routes()

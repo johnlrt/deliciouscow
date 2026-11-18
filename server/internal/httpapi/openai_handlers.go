@@ -219,6 +219,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.Metrics != nil {
+		s.Metrics.RequestsTotal.Add(1)
+	}
+
 	// Create usage row
 	_ = s.Store.WithLock(func(tx *store.Tx) error {
 		tx.Usage = append(tx.Usage, store.UsageRecord{
@@ -501,6 +505,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) markUsageTerminal(requestID, status string, outTokens int, charged types.Money, start time.Time) {
+	if s.Metrics != nil {
+		if status == "settled" {
+			s.Metrics.RequestsSettled.Add(1)
+		} else {
+			s.Metrics.RequestsFailed.Add(1)
+		}
+	}
 	now := s.Store.Now()
 	lat := time.Since(start).Milliseconds()
 	_ = s.Store.WithLock(func(tx *store.Tx) error {

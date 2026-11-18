@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/johnlrt/deliciouscow/server/internal/auth"
 	"github.com/johnlrt/deliciouscow/server/internal/events"
+	"github.com/johnlrt/deliciouscow/server/internal/ranking"
 	"github.com/johnlrt/deliciouscow/server/internal/store"
 	"github.com/johnlrt/deliciouscow/server/internal/types"
 )
@@ -234,6 +235,7 @@ func (h *Hub) CandidateNodesForModel(modelID string) []string {
 				candidates = append(candidates, nodeID)
 			}
 		}
+		ranking.SortNodeIDs(candidates, tx.Nodes)
 		return nil
 	})
 	return candidates
