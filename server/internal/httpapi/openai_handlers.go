@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -156,6 +157,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	idemKey := r.Header.Get("Idempotency-Key")
 	requestID := uuid.NewString()
 	now := s.Store.Now()
+	spendDay := now.UTC().Format("2006-01-02")
 	if idemKey != "" {
 		scopeKey := key.AccountID + ":" + key.ID + ":" + idemKey
 		bodyDigest := s.Auth.HashWithPepper(string(rawBody))
@@ -268,10 +270,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		attemptID := uuid.NewString()
 		leaseID := uuid.NewString()
 		reserveOp := fmt.Sprintf("reserve:%s:%d", requestID, attemptNum)
-		err = s.Store.WithLock(func(tx *store.Tx) error {
-			_, e := ledger.Reserve(tx, reserveOp, key.AccountID, key.ID, requestID, attemptID, reservation, s.Store.Now())
-			return e
-		})
+		_, err = ledger.ExecReserve(r.Context(), s.Store, reserveOp, key.AccountID, key.ID, requestID, attemptID, reservation, s.Store.Now())
 		if err != nil {
 			if errors.Is(err, ledger.ErrInsufficientFunds) {
 				writeErr(w, r, "insufficient_funds", "insufficient available balance", nil)
@@ -310,10 +309,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			DeadlineAt:     s.Store.Now().Add(120 * time.Second),
 		})
 		if err != nil {
-			_ = s.Store.WithLock(func(tx *store.Tx) error {
-				_, e := ledger.Refund(tx, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, requestID, attemptID, reservation, s.Store.Now())
-				return e
-			})
+			finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_, _ = ledger.ExecRefund(finCtx, s.Store, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, key.ID, spendDay, requestID, attemptID, reservation, s.Store.Now())
+			finCancel()
 			lastErrCode = "node_failed"
 			lastErrMsg = "failed to dispatch to node"
 			continue
@@ -466,28 +464,23 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 		if clientCancelled {
 			outTok, _ := s.Tok.CountOutput(model.ID, finalText.String())
+			finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			if outTok == 0 {
-				_ = s.Store.WithLock(func(tx *store.Tx) error {
-					_, e := ledger.Refund(tx, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, requestID, attemptID, reservation, s.Store.Now())
-					return e
-				})
+				_, _ = ledger.ExecRefund(finCtx, s.Store, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, key.ID, spendDay, requestID, attemptID, reservation, s.Store.Now())
 				s.markUsageTerminal(requestID, "cancelled", 0, 0, startTime)
 			} else {
 				actualCost, ownerCredit, _, _ := ledger.ComputeSettlement(inputTokens, outTok, model.InputPricePer1MPiconero, model.OutputPricePer1MPiconero, model.OwnerShareBPS)
-				_ = s.Store.WithLock(func(tx *store.Tx) error {
-					_, e := ledger.Settle(tx, "settle:"+requestID, key.AccountID, ownerAccountID, key.ID, requestID, attemptID, reservation, actualCost, ownerCredit, s.Store.Now())
-					return e
-				})
+				_, _ = ledger.ExecSettle(finCtx, s.Store, "settle:"+requestID, key.AccountID, ownerAccountID, key.ID, spendDay, requestID, attemptID, reservation, actualCost, ownerCredit, s.Store.Now())
 				s.markUsageTerminal(requestID, "cancelled", outTok, actualCost, startTime)
 			}
+			finCancel()
 			return
 		}
 
 		// Refund failed attempt
-		_ = s.Store.WithLock(func(tx *store.Tx) error {
-			_, e := ledger.Refund(tx, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, requestID, attemptID, reservation, s.Store.Now())
-			return e
-		})
+		finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, _ = ledger.ExecRefund(finCtx, s.Store, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, key.ID, spendDay, requestID, attemptID, reservation, s.Store.Now())
+		finCancel()
 		if !attemptFailedBeforeContent || headersSent {
 			break
 		}

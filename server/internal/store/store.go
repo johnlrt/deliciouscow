@@ -234,9 +234,10 @@ type Tx struct {
 	Payouts        []PayoutRecord                   `json:"payouts"`
 	Usage          []UsageRecord                    `json:"usage"`
 	Idempotency    map[string]*IdempotencyRecord    `json:"idempotency"`
-	PlatformEquity types.Money                      `json:"platform_equity"`
-	CashHot        types.Money                      `json:"cash_hot"`
-	LiveSeq        int64                            `json:"live_seq"`
-	LiveEvents     map[string][]LiveEvent           `json:"live_events"` // accountID -> events
-	ResourceRev    map[string]int64                 `json:"resource_rev"`
+	PlatformEquity    types.Money                   `json:"platform_equity"`
+	CashHot           types.Money                   `json:"cash_hot"`
+	NetworkFeeExpense types.Money                   `json:"network_fee_expense"`
+	LiveSeq           int64                         `json:"live_seq"`
+	LiveEvents        map[string][]LiveEvent        `json:"live_events"` // accountID -> events
+	ResourceRev       map[string]int64              `json:"resource_rev"`
 }

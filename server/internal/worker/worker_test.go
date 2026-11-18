@@ -76,6 +76,8 @@ func TestWorkerMaturityAndMoneroScan(t *testing.T) {
 	_ = st.WithLock(func(tx *store.Tx) error {
 		tx.Accounts["u1"].PayoutAddress = &subaddr
 		tx.Accounts["u1"].EarningsAvailablePiconero = 10_000_000_000
+		tx.CashHot += 10_000_000_100
+		tx.PlatformEquity += 100
 		return nil
 	})
 	worker.ProcessPayouts(context.Background(), st, rpc)

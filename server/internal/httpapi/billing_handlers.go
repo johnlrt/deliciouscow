@@ -61,20 +61,11 @@ func (s *Server) handleBillingBalance(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, r, "unauthenticated", "authentication required", nil)
 		return
 	}
-	var bal types.Balance
-	_ = s.Store.WithReadLock(func(tx *store.Tx) error {
-		acc := tx.Accounts[ses.AccountID]
-		bal = types.Balance{
-			AvailablePiconero:         acc.AvailablePiconero,
-			ReservedPiconero:          acc.ReservedPiconero,
-			EarningsPendingPiconero:   acc.EarningsPendingPiconero,
-			EarningsAvailablePiconero: acc.EarningsAvailablePiconero,
-			PayoutReservedPiconero:    acc.PayoutReservedPiconero,
-			Currency:                  "XMR",
-			UpdatedAt:                 types.FormatTS(acc.BalanceUpdatedAt),
-		}
-		return nil
-	})
+	bal, err := ledger.GetBalance(r.Context(), s.Store, ses.AccountID)
+	if err != nil {
+		writeErr(w, r, "server_error", "failed to load balance", nil)
+		return
+	}
 	writeJSON(w, http.StatusOK, bal)
 }
 
@@ -259,34 +250,37 @@ func (s *Server) handleDevDeposit(w http.ResponseWriter, r *http.Request) {
 	now := s.Store.Now()
 	depID := uuid.NewString()
 	txid := wallet.FakeTxID(depID)
-	var bal types.Money
-	err := s.Store.WithLock(func(tx *store.Tx) error {
-		opID := fmt.Sprintf("deposit:%s:1", depID)
-		if _, err := ledger.Deposit(tx, opID, ses.AccountID, txid, req.AmountPiconero, now); err != nil {
-			return err
-		}
-		tx.Deposits = append(tx.Deposits, store.DepositRecord{
-			ID:             depID,
-			AccountID:      ses.AccountID,
-			TxID:           txid,
-			AmountPiconero: req.AmountPiconero,
-			Confirmations:  s.Wallet.ConfirmationsRequired(),
-			Status:         "credited",
-			ObservedAt:     now,
-			CreditedAt:     &now,
-		})
-		bal = tx.Accounts[ses.AccountID].AvailablePiconero
-		return nil
-	})
+	opID := fmt.Sprintf("deposit:%s:1", depID)
+	applied, err := ledger.ExecDeposit(r.Context(), s.Store, opID, ses.AccountID, txid, req.AmountPiconero, now)
 	if err != nil {
 		writeErr(w, r, "server_error", "deposit failed", nil)
+		return
+	}
+	if applied {
+		_ = s.Store.WithLock(func(tx *store.Tx) error {
+			tx.Deposits = append(tx.Deposits, store.DepositRecord{
+				ID:             depID,
+				AccountID:      ses.AccountID,
+				TxID:           txid,
+				AmountPiconero: req.AmountPiconero,
+				Confirmations:  s.Wallet.ConfirmationsRequired(),
+				Status:         "credited",
+				ObservedAt:     now,
+				CreditedAt:     &now,
+			})
+			return nil
+		})
+	}
+	bal, err := ledger.GetBalance(r.Context(), s.Store, ses.AccountID)
+	if err != nil {
+		writeErr(w, r, "server_error", "deposit succeeded but balance lookup failed", nil)
 		return
 	}
 	s.Hub.NotifyAccount(ses.AccountID, "billing", ses.AccountID)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"deposit_id":         depID,
 		"txid":               txid,
-		"available_piconero": bal,
+		"available_piconero": bal.AvailablePiconero,
 	})
 }
 
