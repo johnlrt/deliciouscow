@@ -10,14 +10,44 @@
 - [`mini/`](mini/README.md) — ранний упрощённый прототип на Node.js.
 - [`docs/plan/`](docs/plan/PLAN.md) и [`contracts/`](contracts/openapi.yaml) — спецификация и контракты.
 
-## Проверка и запуск
+## Быстрый запуск локальной демо-версии (Docker)
+
+Сборка Go-сервера, Rust-ноды и frontend выполняется внутри контейнеров.
+
+### Требования к окружению
+- **Linux / macOS:** Docker Engine (или Docker Desktop) + Docker Compose v2 (`docker compose`), `bash`.
+- **Windows:** Docker Desktop (включая Docker Compose v2) + PowerShell 5.1 / PowerShell 7+ (для `smoke` также используется встроенный в Windows 10/11 `curl.exe`).
+- Свободный порт `8443` на `127.0.0.1`.
+
+> По умолчанию dev-профиль запускает `nginx` (HTTPS на `https://localhost:8443`), `server`, `tokenizer`, `redis` и `kafka`. Сервисы `monerod`, `monero-wallet-rpc` и `payments` **не запускаются** (`profiles: ["payments"]`), реальные кошельки и mainnet не используются.
+> При первом запуске автоматически создаются локальные dev-секреты (`.local/dev.env`) и self-signed сертификат (`.local/certs/server.{crt,key}`). Повторный запуск их не перезаписывает.
+
+### Linux / macOS
 ```sh
-make test    # тесты Go (-race), Rust (fmt + clippy + test), Svelte (svelte-check + vitest)
-make build   # сборка server/bin/cordova-server, node/target/release/cordova-node, frontend/build
-make smoke   # сквозной E2E-прогон всех трёх компонентов вместе
+./scripts/cordova-dev.sh up       # подготовка .local/, валидация Compose, сборка и запуск (или: make dev-up)
+./scripts/cordova-dev.sh status   # статус сервисов (или: make dev-status)
+./scripts/cordova-dev.sh logs     # просмотр логов (или: make dev-logs)
+./scripts/cordova-dev.sh smoke    # сквозная проверка: UI, регистрация, dev-депозит, API-ключ, mock-node, SSE (или: make dev-smoke)
+./scripts/cordova-dev.sh down     # остановка без удаления persistent volumes и .local/ (или: make dev-down)
+./scripts/cordova-dev.sh reset    # полная очистка volumes и .local/ (требует подтверждения DELETE; или: make dev-reset)
 ```
-Для локального запуска с веб-интерфейсом:
+
+### Windows (PowerShell)
+```powershell
+.\scripts\cordova-dev.ps1 up
+.\scripts\cordova-dev.ps1 status
+.\scripts\cordova-dev.ps1 logs
+.\scripts\cordova-dev.ps1 smoke
+.\scripts\cordova-dev.ps1 down
+.\scripts\cordova-dev.ps1 reset
+```
+
+После запуска откройте в браузере `https://localhost:8443` (потребуется подтвердить self-signed dev-сертификат).
+
+## Локальная проверка и сборка без Docker
 ```sh
-cd server && ./bin/cordova-server
-# http://127.0.0.1:8443/
+make config-check  # проверка compose-конфигурации, профилей и nginx SSE
+make test          # тесты Go (-race), Rust (fmt + clippy + test), Svelte (svelte-check + vitest)
+make build         # сборка server/bin/cordova-server, node/target/release/cordova-node, frontend/build
+make smoke         # сквозной E2E-прогон на хосте (без Docker)
 ```

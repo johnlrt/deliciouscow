@@ -8,7 +8,13 @@ services:
       - ./nginx/headers.conf:/etc/nginx/headers.conf:ro
       - ../.local/certs:/etc/nginx/certs:ro
     depends_on:
-      - server
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate -qO- https://127.0.0.1:8443/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - edge
 
@@ -22,15 +28,25 @@ services:
       REDIS_ADDR: "redis:6379"
       KAFKA_BROKERS: "kafka:9092"
       TOKENIZER_URL: "http://tokenizer:8090"
-      TOKENIZER_SECRET: "${TOKENIZER_SECRET:-dev-tokenizer-secret}"
+      TOKENIZER_SECRET: "${TOKENIZER_SECRET:-}"
+      API_KEY_PEPPER: "${API_KEY_PEPPER:-}"
+      NODE_SECRET_MASTER_KEY: "${NODE_SECRET_MASTER_KEY:-}"
       MONERO_NETWORK: "${MONERO_NETWORK:-stagenet}"
       DEV_MODE: "${DEV_MODE:-0}"
       DEV_INSECURE_COOKIES: "${DEV_INSECURE_COOKIES:-0}"
       STATIC_DIR: "/app/frontend-build"
     depends_on:
-      - redis
-      - kafka
-      - tokenizer
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      tokenizer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
     networks:
       - edge
       - tokenization
@@ -45,8 +61,13 @@ services:
     command: ["/app/cordova-tokenizer"]
     environment:
       ADDR: ":8090"
-      TOKENIZER_SECRET: "${TOKENIZER_SECRET:-dev-tokenizer-secret}"
+      TOKENIZER_SECRET: "${TOKENIZER_SECRET:-}"
       CATALOG_VERSION: "v1-m1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/healthz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - tokenization
 
@@ -55,13 +76,16 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.server
     command: ["/app/cordova-payments"]
+    profiles: ["payments"]
     environment:
       REDIS_ADDR: "redis:6379"
       MONERO_WALLET_RPC: "http://monero-wallet-rpc:18082"
       MONERO_NETWORK: "${MONERO_NETWORK:-stagenet}"
     depends_on:
-      - redis
-      - monero-wallet-rpc
+      redis:
+        condition: service_healthy
+      monero-wallet-rpc:
+        condition: service_started
     networks:
       - data
       - wallet-rpc
@@ -74,7 +98,8 @@ services:
     environment:
       REDIS_ADDR: "redis:6379"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - data
       - events
@@ -88,8 +113,10 @@ services:
       REDIS_ADDR: "redis:6379"
       KAFKA_BROKERS: "kafka:9092"
     depends_on:
-      - redis
-      - kafka
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     networks:
       - data
       - events
@@ -102,7 +129,8 @@ services:
     environment:
       REDIS_ADDR: "redis:6379"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - data
       - events
@@ -113,6 +141,11 @@ services:
     volumes:
       - ./redis/redis.conf:/etc/redis/redis.conf:ro
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - data
 
@@ -128,11 +161,18 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     volumes:
       - kafka_data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
     networks:
       - events
 
   monero-wallet-rpc:
     image: ghcr.io/sethforprivacy/simple-monero-wallet-rpc:latest
+    profiles: ["payments"]
     command:
       - "--stagenet"
       - "--daemon-address=monerod:18081"
@@ -151,6 +191,7 @@ services:
 
   monerod:
     image: ghcr.io/sethforprivacy/simple-monerod:latest
+    profiles: ["payments"]
     command:
       - "--stagenet"
       - "--rpc-restricted-bind-ip=0.0.0.0"
@@ -164,6 +205,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v3.2.1
+    profiles: ["ops"]
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro

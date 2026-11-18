@@ -3,3 +3,19 @@ services:
     environment:
       DEV_MODE: "1"
       DEV_INSECURE_COOKIES: "0"
+
+  mock-node:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.node
+    profiles: ["mock-node"]
+    volumes:
+      - mock_node_data:/root/.config/cordova-node
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - edge
+
+volumes:
+  mock_node_data:

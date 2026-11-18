@@ -56,3 +56,10 @@ jobs:
           node-version: '24'
       - run: cd frontend && npm ci
       - run: make smoke
+
+  compose-smoke:
+    needs: [config-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/smoke-compose.sh
