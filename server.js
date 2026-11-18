@@ -47,6 +47,7 @@ function finish(id, failed) {
 
 async function chat(req, res) {
   const key = keyOf(req); if (!key) return err(res, 401, 'authentication_error', 'bad api key');
+  key.last = Date.now();
   const b = await body(req);
   if (!MODELS.includes(b.model)) return err(res, 404, 'model_not_found', 'unknown model');
   if (!Array.isArray(b.messages) || !b.messages.length) return err(res, 400, 'invalid_request', 'messages required');
@@ -70,7 +71,11 @@ async function chat(req, res) {
 const chunk = (j, id, delta, fin) => 'data: ' + JSON.stringify({ id, object: 'chat.completion.chunk', model: j.model, choices: [{ index: 0, delta: fin ? {} : { content: delta }, finish_reason: fin ? 'stop' : null }] }) + '\n\n';
 
 async function handle(req, res) {
-  const url = new URL(req.url, 'http://x'), path = url.pathname, m = req.method;
+  const url = new URL(req.url.replace(/^\/+/, '/'), 'http://x'), path = url.pathname, m = req.method;
+  if (m === 'GET' && !path.startsWith('/api/') && !path.startsWith('/v1/') && !path.startsWith('/node/') && path !== '/health') {
+    const f = path === '/' ? 'index.html' : path.replace(/[^a-zA-Z0-9._-]/g, '');
+    try { const ext = f.split('.').pop(); res.writeHead(200, { 'content-type': { html: 'text/html', js: 'text/javascript', css: 'text/css' }[ext] || 'text/plain; charset=utf-8' }); return res.end(fs.readFileSync(__dirname + '/public/' + f)); } catch { return err(res, 404, 'not_found', 'no route'); }
+  }
   if (m === 'GET' && path === '/health') return send(res, 200, { ok: true });
   if (m === 'POST' && path === '/api/register') {
     const b = await body(req);
@@ -121,10 +126,17 @@ async function handle(req, res) {
   if (m === 'GET' && path === '/api/balance') return send(res, 200, { balance: u.balance, earnings: u.earnings });
   if (m === 'POST' && path === '/api/topup') { const b = await body(req); u.balance += Math.max(0, Math.floor(+b.amount || 0)); save(); return send(res, 200, { balance: u.balance }); } // ФЕЙК-депозит вместо XMR
   if (m === 'POST' && path === '/api/payout') { const e = u.earnings; u.earnings = 0; u.balance += 0; save(); return send(res, 200, { paid_out: e, note: 'stub: no real payment' }); }
-  if (m === 'POST' && path === '/api/keys') { const s = rnd('cvk_'); db.keys[hash(s)] = { user, created: Date.now() }; save(); return send(res, 201, { secret: s }); }
-  if (m === 'POST' && path === '/api/nodes') { const id = rnd('n_').slice(0, 10), s = rnd('nsk_'); db.nodes[id] = { id, owner: user, secret: hash(s) }; save(); return send(res, 201, { node_id: id, node_secret: s }); }
-  if (m === 'GET' && path === '/api/nodes') return send(res, 200, Object.values(db.nodes).filter(n => n.owner === user).map(n => ({ id: n.id, online: Date.now() - (n.seen || 0) < 30000 })));
-  if (m === 'GET' && path === '/api/usage') return send(res, 200, db.usage.filter(x => x.user === user).slice(-100).reverse());
+  if (m === 'POST' && path === '/api/keys') { const s = rnd('cvk_'); const b = await body(req); db.keys[hash(s)] = { id: s.slice(0, 12), name: String(b.name || 'key').slice(0, 40), user, created: Date.now(), last: null }; save(); return send(res, 201, { secret: s, id: s.slice(0, 12) }); }
+  if (m === 'GET' && path === '/api/session') return send(res, 200, { username: user });
+  if (m === 'POST' && path === '/api/logout') { delete db.sessions[hash(bearer(req))]; save(); return send(res, 200, { ok: true }); }
+  if (m === 'GET' && path === '/api/keys') return send(res, 200, Object.values(db.keys).filter(k => k.user === user).map(k => ({ id: k.id, name: k.name, created: k.created, last: k.last })));
+  let mk = path.match(/^\/api\/keys\/(.+)$/);
+  if (m === 'DELETE' && mk) { for (const h in db.keys) if (db.keys[h].user === user && db.keys[h].id === mk[1]) delete db.keys[h]; save(); return send(res, 200, { ok: true }); }
+  mk = path.match(/^\/api\/nodes\/(.+)$/);
+  if (m === 'DELETE' && mk) { if (db.nodes[mk[1]]?.owner === user) delete db.nodes[mk[1]]; save(); return send(res, 200, { ok: true }); }
+  if (m === 'POST' && path === '/api/nodes') { const id = rnd('n_').slice(0, 10), s = rnd('nsk_'); const b = await body(req); db.nodes[id] = { id, name: String(b.name || id).slice(0, 40), owner: user, secret: hash(s) }; save(); return send(res, 201, { node_id: id, node_secret: s }); }
+  if (m === 'GET' && path === '/api/nodes') return send(res, 200, Object.values(db.nodes).filter(n => n.owner === user).map(n => ({ id: n.id, name: n.name || n.id, online: Date.now() - (n.seen || 0) < 30000, seen: n.seen || null })));
+  if (m === 'GET' && path === '/api/usage') return send(res, 200, db.usage.filter(x => x.user === user).slice(-500).reverse());
   err(res, 404, 'not_found', 'no route');
 }
 
