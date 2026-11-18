@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
@@ -14,7 +16,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -23,6 +27,7 @@ import (
 
 type Config struct {
 	Pepper          []byte
+	NodeMasterKey   []byte
 	Ed25519Priv     ed25519.PrivateKey
 	Ed25519Pub      ed25519.PublicKey
 	InsecureCookies bool
@@ -36,12 +41,26 @@ func NewConfig(pepperHex string, insecureCookies bool) (*Config, error) {
 			return nil, err
 		}
 	}
+	masterKey := make([]byte, 32)
+	if envKey := strings.TrimSpace(os.Getenv("NODE_SECRET_MASTER_KEY")); envKey != "" {
+		if decoded, err := hex.DecodeString(envKey); err == nil && len(decoded) == 32 {
+			copy(masterKey, decoded)
+		} else {
+			sum := sha256.Sum256([]byte(envKey))
+			copy(masterKey, sum[:])
+		}
+	} else {
+		mac := hmac.New(sha256.New, pepper)
+		mac.Write([]byte("cordova-node-master-key-v1"))
+		copy(masterKey, mac.Sum(nil))
+	}
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
 	return &Config{
 		Pepper:          pepper,
+		NodeMasterKey:   masterKey,
 		Ed25519Priv:     priv,
 		Ed25519Pub:      pub,
 		InsecureCookies: insecureCookies,
@@ -242,4 +261,50 @@ func VerifyTOTP(secretBase32, code string, now time.Time) bool {
 
 func BuildOTPAuthURI(username, secret string) string {
 	return fmt.Sprintf("otpauth://totp/Cordova:%s?secret=%s&issuer=Cordova", url.PathEscape(username), url.QueryEscape(secret))
+}
+
+// EncryptNodeSecret encrypts a node secret with AES-256-GCM using NodeMasterKey.
+func (c *Config) EncryptNodeSecret(plain string) (string, error) {
+	block, err := aes.NewCipher(c.NodeMasterKey)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	sealed := gcm.Seal(nonce, nonce, []byte(plain), nil)
+	return "gcm1:" + base64.RawURLEncoding.EncodeToString(sealed), nil
+}
+
+// DecryptNodeSecret decrypts a node secret encrypted by EncryptNodeSecret.
+func (c *Config) DecryptNodeSecret(stored string) (string, error) {
+	if !strings.HasPrefix(stored, "gcm1:") {
+		return "", errors.New("invalid encrypted node secret format")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(stored, "gcm1:"))
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(c.NodeMasterKey)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	ns := gcm.NonceSize()
+	if len(raw) < ns {
+		return "", errors.New("ciphertext too short")
+	}
+	plain, err := gcm.Open(nil, raw[:ns], raw[ns:], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
 }

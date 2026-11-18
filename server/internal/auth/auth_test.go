@@ -58,3 +58,38 @@ func TestPasswordAndRecoveryAndTOTPAndJWT(t *testing.T) {
 		t.Fatal("node proof failed")
 	}
 }
+
+func TestEncryptDecryptNodeSecret(t *testing.T) {
+	t.Setenv("NODE_SECRET_MASTER_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	cfg1, err := auth.NewConfig("pepper-1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc1, err := cfg1.EncryptNodeSecret("super-secret-node-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc2, err := cfg1.EncryptNodeSecret("super-secret-node-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enc1 == enc2 {
+		t.Fatal("expected random nonces to produce distinct ciphertexts")
+	}
+	if enc1 == "super-secret-node-key" {
+		t.Fatal("secret must not be stored in plaintext")
+	}
+	dec, err := cfg1.DecryptNodeSecret(enc1)
+	if err != nil || dec != "super-secret-node-key" {
+		t.Fatalf("decrypt failed: got=%q err=%v", dec, err)
+	}
+
+	t.Setenv("NODE_SECRET_MASTER_KEY", "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210")
+	cfg2, err := auth.NewConfig("pepper-1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg2.DecryptNodeSecret(enc1); err == nil {
+		t.Fatal("expected decryption with wrong master key to fail")
+	}
+}

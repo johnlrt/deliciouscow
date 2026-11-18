@@ -170,11 +170,15 @@ func (s *Server) handleLinkNode(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = "node-" + nodeID[:8]
 		}
+		encSecret, err := s.Auth.EncryptNodeSecret(nodeSecret)
+		if err != nil {
+			return err
+		}
 		rec := &store.NodeRecord{
 			ID:             nodeID,
 			OwnerAccountID: ses.AccountID,
 			Name:           name,
-			SecretHash:     nodeSecret,
+			SecretHash:     encSecret,
 			SecretVersion:  1,
 			HWIDHash:       enr.HWIDHash,
 			NodeVersion:    enr.NodeVersion,
@@ -381,12 +385,8 @@ func (s *Server) handleNodeAuthToken(w http.ResponseWriter, r *http.Request) {
 		if !ok || n.RevokedAt != nil {
 			return store.ErrNotFound
 		}
-		// In M1, node_secret is stored as SHA256 hex in SecretHash, wait: VerifyNodeProof needs the raw node_secret!
-		// In M1 we store SecretHash = SHA256(node_secret) for lookup, or we store encrypted/plaintext in M1?
-		// Look at C3: "Store node secrets encrypted using an external master key."
-		// Let's check: if we only store SHA256(node_secret), we cannot compute HMAC(node_secret, ...)!
-		// Let's fix SecretHash to store the node_secret or verify against Enrollment's secret, OR store node_secret in SecretHash in M1 (since MemoryStore is local dev) with a clear note!
-		if !auth.VerifyNodeProof(n.SecretHash, req.NodeID, req.Nonce, req.Proof) {
+		plainSecret, err := s.Auth.DecryptNodeSecret(n.SecretHash)
+		if err != nil || !auth.VerifyNodeProof(plainSecret, req.NodeID, req.Nonce, req.Proof) {
 			return store.ErrConflict
 		}
 		secretVer = n.SecretVersion
