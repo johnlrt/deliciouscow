@@ -1,0 +1,20 @@
+FROM node:24-alpine AS front
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+FROM golang:1.27-alpine AS back
+WORKDIR /app/server
+COPY server/go.* ./
+RUN go mod download
+COPY server/ ./
+RUN CGO_ENABLED=0 go build -o /cordova-server ./cmd/cordova-server
+
+FROM alpine:3.21
+WORKDIR /app
+COPY --from=back /cordova-server /app/cordova-server
+COPY --from=front /app/frontend/build /app/frontend-build
+EXPOSE 8080
+CMD ["/app/cordova-server"]

@@ -1,0 +1,79 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../.local/certs:/etc/nginx/certs:ro
+    depends_on:
+      - server
+    networks:
+      - edge
+
+  server:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.server
+    environment:
+      ADDR: ":8080"
+      REDIS_ADDR: "redis:6379"
+      KAFKA_BROKERS: "kafka:9092"
+      MONERO_WALLET_RPC: "http://monero-wallet-rpc:18082"
+      MONERO_NETWORK: "stagenet"
+      DEV_MODE: "0"
+      DEV_INSECURE_COOKIES: "0"
+      STATIC_DIR: "/app/frontend-build"
+    depends_on:
+      - redis
+      - kafka
+    networks:
+      - edge
+      - data
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - data
+
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    networks:
+      - data
+
+  monero-wallet-rpc:
+    image: ghcr.io/sethforprivacy/simple-monero-wallet-rpc:latest
+    command:
+      - "--stagenet"
+      - "--rpc-bind-ip=0.0.0.0"
+      - "--rpc-bind-port=18082"
+      - "--confirm-external-bind"
+      - "--disable-rpc-login"
+      - "--wallet-dir=/wallet"
+    volumes:
+      - monero_wallet:/wallet
+    networks:
+      - data
+
+networks:
+  edge:
+  data:
+    internal: true
+
+volumes:
+  redis_data:
+  kafka_data:
+  monero_wallet:
