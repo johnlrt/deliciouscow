@@ -16,6 +16,7 @@ import (
 	"github.com/johnlrt/deliciouscow/server/internal/store"
 	"github.com/johnlrt/deliciouscow/server/internal/tokenizer"
 	"github.com/johnlrt/deliciouscow/server/internal/wallet"
+	"github.com/johnlrt/deliciouscow/server/internal/worker"
 	"github.com/johnlrt/deliciouscow/server/internal/ws"
 )
 
@@ -81,8 +82,12 @@ func main() {
 		log.Fatalf("auth init: %v", err)
 	}
 	catalog := tokenizer.DefaultCatalog()
-	hub := ws.NewHub(st, authCfg, catalog)
+	hub := ws.NewHub(st, authCfg, catalog, bus)
 	srv := httpapi.NewServer(st, authCfg, tok, wal, hub, catalog, devMode, staticDir)
+
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	defer cancelWorker()
+	go worker.Run(workerCtx, st, wal, 15*time.Second)
 
 	httpSrv := &http.Server{
 		Addr:              addr,
@@ -100,6 +105,7 @@ func main() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
+	cancelWorker()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(ctx)

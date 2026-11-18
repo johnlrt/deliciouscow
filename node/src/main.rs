@@ -136,6 +136,28 @@ mod tests {
     use tokio_tungstenite::tungstenite::Message;
 
     #[test]
+    fn test_config_save_load_permissions() {
+        let dir = std::env::temp_dir().join(format!("cordova-node-test-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("config.json");
+        let cfg = config::NodeConfig {
+            server_origin: "http://127.0.0.1:8443".into(),
+            node_id: "n-1".into(),
+            node_secret: "sec-1".into(),
+            install_salt: "salt-1".into(),
+        };
+        config::save_config(&path, &cfg).unwrap();
+        let loaded = config::load_config(&path).unwrap();
+        assert_eq!(loaded.node_id, "n-1");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn test_hmac_proof_deterministic() {
         let p1 = auth::compute_proof("secret123", "node-1", "nonce-abc").unwrap();
         let p2 = auth::compute_proof("secret123", "node-1", "nonce-abc").unwrap();

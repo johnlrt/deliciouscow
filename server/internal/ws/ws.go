@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/johnlrt/deliciouscow/server/internal/auth"
+	"github.com/johnlrt/deliciouscow/server/internal/events"
 	"github.com/johnlrt/deliciouscow/server/internal/store"
 	"github.com/johnlrt/deliciouscow/server/internal/types"
 )
@@ -166,6 +167,7 @@ func (lc *liveClient) sendEnvelope(ctx context.Context, msgType string, reqID *s
 type Hub struct {
 	store       store.Store
 	authCfg     *auth.Config
+	bus         events.Bus
 	catalog     []types.Model
 	catalogVer  string
 	nodesMu     sync.RWMutex
@@ -174,10 +176,15 @@ type Hub struct {
 	liveClients map[string]map[*liveClient]struct{} // accountID -> set
 }
 
-func NewHub(st store.Store, authCfg *auth.Config, catalog []types.Model) *Hub {
+func NewHub(st store.Store, authCfg *auth.Config, catalog []types.Model, bus ...events.Bus) *Hub {
+	var b events.Bus = events.NoopBus{}
+	if len(bus) > 0 && bus[0] != nil {
+		b = bus[0]
+	}
 	return &Hub{
 		store:       st,
 		authCfg:     authCfg,
+		bus:         b,
 		catalog:     catalog,
 		catalogVer:  "v1-m1",
 		nodes:       make(map[string]*nodeConn),
@@ -414,6 +421,12 @@ func (h *Hub) ServeNodeWS(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	h.NotifyAccount(ownerID, "nodes", nc.nodeID)
+	_ = h.bus.Publish(context.Background(), events.TopicNodeEvents, nc.nodeID, map[string]any{
+		"type":       "node.join",
+		"node_id":    nc.nodeID,
+		"session_id": sessionID,
+		"at":         now.Format(time.RFC3339),
+	})
 
 	welcomePayload := map[string]any{
 		"session_id":            sessionID,
@@ -447,6 +460,13 @@ func (h *Hub) ServeNodeWS(w http.ResponseWriter, r *http.Request) {
 			return nil
 		})
 		h.NotifyAccount(ownerID, "nodes", nc.nodeID)
+		_ = h.bus.Publish(context.Background(), events.TopicNodeEvents, nc.nodeID, map[string]any{
+			"type":       "node.leave",
+			"node_id":    nc.nodeID,
+			"session_id": sessionID,
+			"reason":     "disconnect",
+			"at":         t.Format(time.RFC3339),
+		})
 	}()
 
 	for {
