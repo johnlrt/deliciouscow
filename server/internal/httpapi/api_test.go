@@ -318,4 +318,244 @@ func TestEndToEndM1VerticalSlice(t *testing.T) {
 	if len(uPage.Data) != 2 {
 		t.Fatalf("expected 2 usage rows, got %d", len(uPage.Data))
 	}
+	for _, row := range uPage.Data {
+		if row.Billable || row.TokenizationVerified {
+			t.Fatalf("expected unverified SimpleEstimator usage to be marked non-billable, got %+v", row)
+		}
+		if row.BillingNote == nil || *row.BillingNote != "non_billable_unverified_tokenization" {
+			t.Fatalf("expected billing_note=non_billable_unverified_tokenization, got %v", row.BillingNote)
+		}
+		if row.ChargedPiconero == nil || *row.ChargedPiconero != 0 {
+			t.Fatalf("expected charged_piconero=0 for non-billable usage, got %v", row.ChargedPiconero)
+		}
+	}
+}
+
+func TestNonBillableUsageZeroMonetaryPostings(t *testing.T) {
+	ts, srv := setupTestServer(t)
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+
+	// Register + deposit 5000 piconero + create API key with tight daily spend cap of 1 piconero
+	resp := postJSON(t, client, ts.URL+"/api/auth/register", "", "", map[string]any{
+		"username":               "nonbillable",
+		"password":               "correcthorsebatterystaple",
+		"privacy_notice_version": "v1",
+	})
+	var reg types.RegisterResponse
+	_ = json.NewDecoder(resp.Body).Decode(&reg)
+	resp.Body.Close()
+
+	resp = postJSON(t, client, ts.URL+"/api/dev/deposit", reg.CSRFToken, "", map[string]any{
+		"amount_piconero": "5000",
+	})
+	resp.Body.Close()
+
+	resp = postJSON(t, client, ts.URL+"/api/keys", reg.CSRFToken, "", map[string]any{
+		"name":                     "capped-key",
+		"daily_spend_cap_piconero": "1",
+	})
+	var keyResp struct {
+		Key    types.APIKey `json:"key"`
+		Secret string       `json:"secret"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&keyResp)
+	resp.Body.Close()
+
+	// Enroll & connect a mock WS node that handles: success, error, and cancel
+	resp = postJSON(t, &http.Client{}, ts.URL+"/api/node/enrollments", "", "", map[string]any{
+		"hwid_hash": strings.Repeat("b", 64), "node_version": "0.1.0", "device_name": "nb-node",
+	})
+	var enr struct {
+		UserCode   string `json:"user_code"`
+		DeviceCode string `json:"device_code"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&enr)
+	resp.Body.Close()
+	postJSON(t, client, ts.URL+"/api/nodes/link", reg.CSRFToken, "", map[string]any{
+		"user_code": enr.UserCode, "name": "nb-node",
+	}).Body.Close()
+	resp = postJSON(t, &http.Client{}, ts.URL+"/api/node/enrollments/token", "", "", map[string]any{
+		"device_code": enr.DeviceCode,
+	})
+	var tokResp struct {
+		NodeID     string `json:"node_id"`
+		NodeSecret string `json:"node_secret"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&tokResp)
+	resp.Body.Close()
+	resp = postJSON(t, &http.Client{}, ts.URL+"/api/node/auth/challenge", "", "", map[string]any{"node_id": tokResp.NodeID})
+	var chal struct{ Nonce string `json:"nonce"` }
+	_ = json.NewDecoder(resp.Body).Decode(&chal)
+	resp.Body.Close()
+	proof := auth.ComputeNodeProof(tokResp.NodeSecret, tokResp.NodeID, chal.Nonce)
+	resp = postJSON(t, &http.Client{}, ts.URL+"/api/node/auth/token", "", "", map[string]any{
+		"node_id": tokResp.NodeID, "nonce": chal.Nonce, "proof": proof,
+	})
+	var authTok struct{ AccessToken string `json:"access_token"` }
+	_ = json.NewDecoder(resp.Body).Decode(&authTok)
+	resp.Body.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/node/ws"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsConn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": []string{"Bearer " + authTok.AccessToken}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wsConn.Close(websocket.StatusNormalClosure, "done")
+
+	sendWS := func(seq uint32, sid, reqID *string, typ string, payload any, errObj *ws.EnvelopeError) {
+		pb, _ := json.Marshal(payload)
+		env := ws.Envelope{
+			V: 1, Type: typ, MessageID: uuid.NewString(), RequestID: reqID,
+			SessionID: sid, Seq: seq, SentAt: time.Now().UTC().Format(time.RFC3339),
+			Payload: pb, Error: errObj,
+		}
+		b, _ := json.Marshal(env)
+		_ = wsConn.Write(ctx, websocket.MessageText, b)
+	}
+	sendWS(1, nil, nil, "hello", map[string]any{
+		"node_id": tokResp.NodeID, "node_version": "0.1.0", "protocol_versions": []int{1},
+		"hardware": types.Hardware{CPUModel: "test", CPUCores: 2, RAMBytes: 4 << 30, OS: "linux", Arch: "amd64"},
+		"hwid_hash": strings.Repeat("b", 64),
+	}, nil)
+	_, rawWelcome, err := wsConn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var welcomeEnv ws.Envelope
+	_ = json.Unmarshal(rawWelcome, &welcomeEnv)
+	sid := welcomeEnv.SessionID
+
+	modeCh := make(chan string, 3)
+	modeCh <- "success"
+	modeCh <- "error"
+	modeCh <- "cancel"
+	cancelAck := make(chan struct{}, 1)
+
+	go func() {
+		var seq uint32 = 1
+		for {
+			_, raw, err := wsConn.Read(ctx)
+			if err != nil {
+				return
+			}
+			var msg ws.Envelope
+			if json.Unmarshal(raw, &msg) != nil {
+				return
+			}
+			if msg.Type == "inference.start" {
+				var p struct {
+					AttemptID            string `json:"attempt_id"`
+					LeaseID              string `json:"lease_id"`
+					TokenizationVerified bool   `json:"tokenization_verified"`
+				}
+				_ = json.Unmarshal(msg.Payload, &p)
+				if p.TokenizationVerified {
+					t.Errorf("expected tokenization_verified=false for SimpleEstimator")
+				}
+				mode := <-modeCh
+				switch mode {
+				case "success":
+					seq++
+					sendWS(seq, sid, msg.RequestID, "inference.accepted", map[string]any{"attempt_id": p.AttemptID, "lease_id": p.LeaseID}, nil)
+					seq++
+					sendWS(seq, sid, msg.RequestID, "inference.delta", map[string]any{"attempt_id": p.AttemptID, "lease_id": p.LeaseID, "chunk_index": 0, "text": "ok"}, nil)
+					seq++
+					sendWS(seq, sid, msg.RequestID, "inference.complete", map[string]any{"attempt_id": p.AttemptID, "lease_id": p.LeaseID, "last_chunk_index": 0, "finish_reason": "stop"}, nil)
+				case "error":
+					seq++
+					sendWS(seq, sid, msg.RequestID, "error", map[string]any{"attempt_id": p.AttemptID, "lease_id": p.LeaseID}, &ws.EnvelopeError{Code: "node_failed", Message: "boom", Retryable: false})
+				case "cancel":
+					seq++
+					sendWS(seq, sid, msg.RequestID, "inference.accepted", map[string]any{"attempt_id": p.AttemptID, "lease_id": p.LeaseID}, nil)
+					seq++
+					sendWS(seq, sid, msg.RequestID, "inference.delta", map[string]any{"attempt_id": p.AttemptID, "lease_id": p.LeaseID, "chunk_index": 0, "text": "partial"}, nil)
+				}
+			} else if msg.Type == "inference.cancel" {
+				select {
+				case cancelAck <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+
+	// Snapshot financial state BEFORE requests
+	var beforeAvail, beforeRes, beforeEarn, beforeKeySpent types.Money
+	var beforeLedgerLen int
+	_ = srv.Store.WithReadLock(func(tx *store.Tx) error {
+		acc := tx.Accounts[reg.AccountID]
+		beforeAvail = acc.AvailablePiconero
+		beforeRes = acc.ReservedPiconero
+		beforeEarn = acc.EarningsPendingPiconero
+		beforeKeySpent = tx.APIKeys[keyResp.Key.ID].DailySpentPiconero
+		beforeLedgerLen = len(tx.Ledger)
+		return nil
+	})
+
+	assertUnchanged := func(label string) {
+		t.Helper()
+		_ = srv.Store.WithReadLock(func(tx *store.Tx) error {
+			acc := tx.Accounts[reg.AccountID]
+			if acc.AvailablePiconero != beforeAvail || acc.ReservedPiconero != beforeRes || acc.EarningsPendingPiconero != beforeEarn {
+				t.Fatalf("%s: balance mutated: avail=%d (want %d), res=%d (want %d), earn=%d (want %d)",
+					label, acc.AvailablePiconero, beforeAvail, acc.ReservedPiconero, beforeRes, acc.EarningsPendingPiconero, beforeEarn)
+			}
+			if got := tx.APIKeys[keyResp.Key.ID].DailySpentPiconero; got != beforeKeySpent {
+				t.Fatalf("%s: spend cap mutated: got %d want %d", label, got, beforeKeySpent)
+			}
+			if len(tx.Ledger) != beforeLedgerLen {
+				t.Fatalf("%s: expected zero new ledger entries, got %d (was %d)", label, len(tx.Ledger), beforeLedgerLen)
+			}
+			return nil
+		})
+	}
+
+	// 1. Successful non-billable request (must succeed despite daily_spend_cap_piconero=1!)
+	r1 := postJSON(t, &http.Client{}, ts.URL+"/v1/chat/completions", "", keyResp.Secret, map[string]any{
+		"model": "cordova-tiny-chat", "messages": []map[string]string{{"role": "user", "content": "hi"}},
+	})
+	if r1.StatusCode != 200 {
+		t.Fatalf("expected 200 for non-billable success, got %d", r1.StatusCode)
+	}
+	r1.Body.Close()
+	assertUnchanged("after success")
+
+	// 2. Errored non-billable request
+	r2 := postJSON(t, &http.Client{}, ts.URL+"/v1/chat/completions", "", keyResp.Secret, map[string]any{
+		"model": "cordova-tiny-chat", "messages": []map[string]string{{"role": "user", "content": "err"}},
+	})
+	if r2.StatusCode != 503 {
+		t.Fatalf("expected 503 for node error, got %d", r2.StatusCode)
+	}
+	r2.Body.Close()
+	assertUnchanged("after error")
+
+	// 3. Cancelled non-billable streaming request
+	reqCtx, reqCancel := context.WithCancel(context.Background())
+	bodyBytes, _ := json.Marshal(map[string]any{
+		"model": "cordova-tiny-chat", "stream": true, "messages": []map[string]string{{"role": "user", "content": "cancel"}},
+	})
+	httpReq, _ := http.NewRequestWithContext(reqCtx, "POST", ts.URL+"/v1/chat/completions", bytes.NewReader(bodyBytes))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+keyResp.Secret)
+	r3, err := (&http.Client{}).Do(httpReq)
+	if err != nil {
+		t.Fatalf("cancel stream start: %v", err)
+	}
+	buf := make([]byte, 256)
+	_, _ = r3.Body.Read(buf)
+	reqCancel()
+	r3.Body.Close()
+	select {
+	case <-cancelAck:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for node cancel")
+	}
+	time.Sleep(50 * time.Millisecond)
+	assertUnchanged("after cancel")
 }

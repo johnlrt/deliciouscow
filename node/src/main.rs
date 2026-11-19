@@ -1,18 +1,22 @@
 #![forbid(unsafe_code)]
 
-mod auth;
-mod backend;
-mod config;
-mod ws;
-
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+use anyhow::{bail, Result};
+use clap::{Parser, Subcommand, ValueEnum};
+use cordova_node::{auth, backend, config, ws};
 use reqwest::Client;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum BackendMode {
+    /// Deterministic local mock backend (no real model weights)
+    Mock,
+    /// Explicit llama.cpp (llama-server) backend
+    Llama,
+}
+
 #[derive(Parser)]
-#[command(name = "cordova-node", about = "Cordova community inference node")]
+#[command(name = "cordova-node", about = "deliciouscow community inference node")]
 struct Cli {
     #[arg(long, env = "CORDOVA_NODE_CONFIG")]
     config: Option<PathBuf>,
@@ -32,10 +36,23 @@ enum Commands {
     },
     /// Run the node and connect to the coordinator via WebSocket
     Run {
-        #[arg(long, default_value = "mock")]
-        backend: String,
-        #[arg(long, default_value = "http://127.0.0.1:8081")]
-        llama_url: String,
+        #[arg(long, value_enum, default_value_t = BackendMode::Mock)]
+        backend: BackendMode,
+        /// Existing llama-server HTTP endpoint (mutually exclusive with --llama-bin/--llama-model)
+        #[arg(long)]
+        llama_url: Option<String>,
+        /// Path to local llama-server executable (must be paired with --llama-model)
+        #[arg(long)]
+        llama_bin: Option<PathBuf>,
+        /// Path to local GGUF model file (must be paired with --llama-bin)
+        #[arg(long)]
+        llama_model: Option<PathBuf>,
+        /// Loopback port when spawning a managed local llama-server
+        #[arg(long, default_value_t = 8081)]
+        llama_port: u16,
+        /// Seconds to wait for llama-server /health readiness before failing
+        #[arg(long, default_value_t = 15)]
+        llama_ready_timeout_secs: u64,
         #[arg(long, default_value = "cordova-tiny-chat")]
         model: String,
     },
@@ -86,6 +103,10 @@ async fn main() -> Result<()> {
         Commands::Run {
             backend,
             llama_url,
+            llama_bin,
+            llama_model,
+            llama_port,
+            llama_ready_timeout_secs,
             model,
         } => {
             let cfg = config::load_config(&cfg_path)?;
@@ -94,21 +115,44 @@ async fn main() -> Result<()> {
                 let _ = tokio::signal::ctrl_c().await;
                 let _ = shut_tx.send(true);
             });
-            println!(
-                "Starting cordova-node {} -> {}",
-                cfg.node_id, cfg.server_origin
-            );
-            if backend == "llama" {
-                let bk = Arc::new(backend::LlamaServerBackend::connect_existing(
-                    llama_url, model,
-                ));
-                ws::run_node_loop(cfg, bk, shut_rx).await?;
-            } else {
-                let bk = Arc::new(backend::MockBackend {
-                    model_ids: vec![model],
-                    token_delay_ms: 20,
-                });
-                ws::run_node_loop(cfg, bk, shut_rx).await?;
+            match backend {
+                BackendMode::Llama => {
+                    let llama_cfg = backend::LlamaConfig::from_args(
+                        llama_url,
+                        llama_bin,
+                        llama_model,
+                        llama_port,
+                        model,
+                        llama_ready_timeout_secs,
+                    )?;
+                    println!(
+                        "Starting llama.cpp backend for model {} (waiting for /health readiness)...",
+                        llama_cfg.model_id
+                    );
+                    let bk =
+                        Arc::new(backend::LlamaServerBackend::start_from_config(&llama_cfg).await?);
+                    println!(
+                        "llama-server ready at {}; connecting node {} -> {}",
+                        bk.endpoint, cfg.node_id, cfg.server_origin
+                    );
+                    ws::run_node_loop(cfg, bk, shut_rx).await?;
+                }
+                BackendMode::Mock => {
+                    if llama_url.is_some() || llama_bin.is_some() || llama_model.is_some() {
+                        bail!(
+                            "llama.cpp options (--llama-url, --llama-bin, --llama-model) cannot be used with --backend mock; pass --backend llama explicitly"
+                        );
+                    }
+                    println!(
+                        "Starting cordova-node {} (mock backend) -> {}",
+                        cfg.node_id, cfg.server_origin
+                    );
+                    let bk = Arc::new(backend::MockBackend {
+                        model_ids: vec![model],
+                        token_delay_ms: 20,
+                    });
+                    ws::run_node_loop(cfg, bk, shut_rx).await?;
+                }
             }
         }
         Commands::Status => match config::load_config(&cfg_path) {
@@ -176,6 +220,7 @@ mod tests {
             backend::InferenceRequest {
                 model_id: "cordova-tiny-chat".into(),
                 input_token_ids: vec![1, 2, 3],
+                tokenization_verified: false,
                 max_tokens: 32,
                 temperature: 0.7,
                 top_p: 1.0,
@@ -243,6 +288,7 @@ mod tests {
                     "lease_id": "lease-1",
                     "model_id": "cordova-tiny-chat",
                     "input_token_ids": [10, 20],
+                    "tokenization_verified": false,
                     "max_tokens": 16,
                     "parameters": {"temperature": 0.5, "top_p": 1.0, "stop": []}
                 }),

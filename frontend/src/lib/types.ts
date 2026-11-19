@@ -139,17 +139,7 @@ export interface Payout {
 	hold_reason: string | null;
 }
 
-export interface UsageRow {
-	request_id: string;
-	model_id: string;
-	status: 'accepted' | 'running' | 'settled' | 'refunded' | 'cancelled' | 'recovering';
-	input_tokens: number;
-	output_tokens: number;
-	charged_piconero: Money | null;
-	latency_ms: number | null;
-	created_at: string;
-	finished_at: string | null;
-}
+export type { UsageRow } from './generated/contracts';
 
 export interface AnalyticsBucket {
 	start: string;

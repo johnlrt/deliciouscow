@@ -65,6 +65,11 @@
     "valid": false
   },
   {
+    "file": "rest/usage-bad-billable-type.json",
+    "schema": "openapi.yaml#/components/schemas/UsagePage",
+    "valid": false
+  },
+  {
     "file": "rest/node-valid.json",
     "schema": "openapi.yaml#/components/schemas/Node",
     "valid": true
@@ -216,6 +221,21 @@
   },
   {
     "file": "ws/node-hello-unknown-field.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": false
+  },
+  {
+    "file": "ws/node-inference-start.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": true
+  },
+  {
+    "file": "ws/node-inference-start-bad-verified-type.json",
+    "schema": "ws/v1.schema.json#",
+    "valid": false
+  },
+  {
+    "file": "ws/node-inference-start-missing-verified.json",
     "schema": "ws/v1.schema.json#",
     "valid": false
   },
