@@ -19,7 +19,70 @@ type Tokenizer interface {
 	CountOutput(modelID string, text string) (int, error)
 }
 
+// ModelPin binds a catalog model ID to its expected tokenizer and chat-template SHA-256 digests.
+type ModelPin struct {
+	TokenizerSHA256 string
+	TemplateSHA256  string
+}
+
+// PrepareResult carries tokenized input along with whether model tokenization is cryptographically verified.
+type PrepareResult struct {
+	InputTokens     int
+	InputTokenIDs   []int
+	Verified        bool
+	TokenizerSHA256 string
+	TemplateSHA256  string
+}
+
+// VerifiedTokenizer is optionally implemented by tokenizers that can report verification status.
+type VerifiedTokenizer interface {
+	PrepareInput(modelID string, messages []ChatMessage) (PrepareResult, error)
+}
+
+// PrepareInput tokenizes messages and reports whether tokenization for modelID is verified.
+// Tokenizers that do not implement VerifiedTokenizer are treated as unverified (non-billable).
+func PrepareInput(tok Tokenizer, modelID string, messages []ChatMessage) (PrepareResult, error) {
+	if vt, ok := tok.(VerifiedTokenizer); ok {
+		return vt.PrepareInput(modelID, messages)
+	}
+	n, ids, err := tok.CountInput(modelID, messages)
+	if err != nil {
+		return PrepareResult{}, err
+	}
+	return PrepareResult{
+		InputTokens:   n,
+		InputTokenIDs: ids,
+		Verified:      false,
+	}, nil
+}
+
+// IsSHA256Hex reports whether s is a valid 64-character lowercase hex SHA-256 digest.
+func IsSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
 type SimpleEstimator struct{}
+
+func (s SimpleEstimator) PrepareInput(modelID string, messages []ChatMessage) (PrepareResult, error) {
+	n, ids, err := s.CountInput(modelID, messages)
+	if err != nil {
+		return PrepareResult{}, err
+	}
+	return PrepareResult{
+		InputTokens:   n,
+		InputTokenIDs: ids,
+		Verified:      false,
+	}, nil
+}
 
 func (SimpleEstimator) CountInput(_ string, messages []ChatMessage) (int, []int, error) {
 	var b strings.Builder

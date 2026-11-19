@@ -317,15 +317,19 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			out = append(out, types.UsageRow{
-				RequestID:       u.RequestID,
-				ModelID:         u.ModelID,
-				Status:          u.Status,
-				InputTokens:     u.InputTokens,
-				OutputTokens:    u.OutputTokens,
-				ChargedPiconero: u.ChargedPiconero,
-				LatencyMS:       u.LatencyMS,
-				CreatedAt:       types.FormatTS(u.CreatedAt),
-				FinishedAt:      types.FormatTSPtr(u.FinishedAt),
+				RequestID:            u.RequestID,
+				APIKeyID:             u.APIKeyID,
+				ModelID:              u.ModelID,
+				Status:               u.Status,
+				InputTokens:          u.InputTokens,
+				OutputTokens:         u.OutputTokens,
+				ChargedPiconero:      u.ChargedPiconero,
+				Billable:             u.Billable,
+				TokenizationVerified: u.TokenizationVerified,
+				BillingNote:          types.ErrPtr(u.BillingNote),
+				LatencyMS:            u.LatencyMS,
+				CreatedAt:            types.FormatTS(u.CreatedAt),
+				FinishedAt:           types.FormatTSPtr(u.FinishedAt),
 			})
 		}
 		return nil

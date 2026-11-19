@@ -177,17 +177,20 @@ type PayoutRecord struct {
 }
 
 type UsageRecord struct {
-	RequestID       string       `json:"request_id"`
-	AccountID       string       `json:"account_id"`
-	APIKeyID        string       `json:"api_key_id"`
-	ModelID         string       `json:"model_id"`
-	Status          string       `json:"status"`
-	InputTokens     int          `json:"input_tokens"`
-	OutputTokens    int          `json:"output_tokens"`
-	ChargedPiconero *types.Money `json:"charged_piconero,omitempty"`
-	LatencyMS       *int64       `json:"latency_ms,omitempty"`
-	CreatedAt       time.Time    `json:"created_at"`
-	FinishedAt      *time.Time   `json:"finished_at,omitempty"`
+	RequestID            string       `json:"request_id"`
+	AccountID            string       `json:"account_id"`
+	APIKeyID             string       `json:"api_key_id"`
+	ModelID              string       `json:"model_id"`
+	Status               string       `json:"status"`
+	InputTokens          int          `json:"input_tokens"`
+	OutputTokens         int          `json:"output_tokens"`
+	ChargedPiconero      *types.Money `json:"charged_piconero,omitempty"`
+	Billable             bool         `json:"billable"`
+	TokenizationVerified bool         `json:"tokenization_verified"`
+	BillingNote          string       `json:"billing_note,omitempty"`
+	LatencyMS            *int64       `json:"latency_ms,omitempty"`
+	CreatedAt            time.Time    `json:"created_at"`
+	FinishedAt           *time.Time   `json:"finished_at,omitempty"`
 }
 
 type IdempotencyRecord struct {

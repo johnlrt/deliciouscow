@@ -117,7 +117,8 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
     let (ws_stream, _) = tokio_tungstenite::connect_async(req).await?;
     let (mut sink, mut stream) = ws_stream.split();
 
-    let (out_tx, mut out_rx) = mpsc::channel::<(String, Option<String>, Value)>(64);
+    let (out_tx, mut out_rx) =
+        mpsc::channel::<(String, Option<String>, Value, Option<EnvelopeError>)>(64);
     let hwid = compute_hwid_hash(&cfg.install_salt);
 
     // Send hello (seq=1, session_id=None)
@@ -162,7 +163,7 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
     let sid_clone = session_id.clone();
     let writer = tokio::spawn(async move {
         let mut seq: u32 = 1; // hello was seq=1
-        while let Some((msg_type, req_id, payload)) = out_rx.recv().await {
+        while let Some((msg_type, req_id, payload, error)) = out_rx.recv().await {
             seq = seq.saturating_add(1);
             let env = Envelope {
                 v: 1,
@@ -173,7 +174,7 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
                 seq,
                 sent_at: Utc::now().to_rfc3339(),
                 payload,
-                error: None,
+                error,
             };
             if let Ok(txt) = serde_json::to_string(&env) {
                 if sink.send(Message::Text(txt)).await.is_err() {
@@ -193,7 +194,7 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
                     let _ = out_tx.send(("goodbye".to_string(), None, serde_json::json!({
                         "reason": "shutdown",
                         "active_leases": [],
-                    }))).await;
+                    }), None)).await;
                     break;
                 }
             }
@@ -203,7 +204,7 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
                     "active_leases": leases,
                     "hardware": local_hardware(),
                     "models": backend.models(),
-                }))).await;
+                }), None)).await;
             }
             frame = stream.next() => {
                 let msg = match frame {
@@ -229,6 +230,33 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
                             .as_array()
                             .map(|a| a.iter().filter_map(|x| x.as_i64()).collect())
                             .unwrap_or_default();
+                        let tokenization_verified = match env
+                            .payload
+                            .get("tokenization_verified")
+                            .and_then(|v| v.as_bool())
+                        {
+                            Some(v) => v,
+                            None => {
+                                let _ = out_tx
+                                    .send((
+                                        "error".to_string(),
+                                        env.request_id.clone(),
+                                        serde_json::json!({
+                                            "operation_type": "inference.start",
+                                            "attempt_id": if attempt_id.is_empty() { Value::Null } else { Value::String(attempt_id) },
+                                            "lease_id": if lease_id.is_empty() { Value::Null } else { Value::String(lease_id) },
+                                            "command_id": Value::Null,
+                                        }),
+                                        Some(EnvelopeError {
+                                            code: "invalid_message".to_string(),
+                                            message: "inference.start requires boolean tokenization_verified".to_string(),
+                                            retryable: false,
+                                        }),
+                                    ))
+                                    .await;
+                                continue;
+                            }
+                        };
                         let temperature = env.payload["parameters"]["temperature"].as_f64().unwrap_or(0.7);
                         let top_p = env.payload["parameters"]["top_p"].as_f64().unwrap_or(1.0);
                         let stop: Vec<String> = env.payload["parameters"]["stop"]
@@ -248,12 +276,13 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
                             let _ = out.send(("inference.accepted".to_string(), req_id.clone(), serde_json::json!({
                                 "attempt_id": attempt_id,
                                 "lease_id": lease_id,
-                            }))).await;
+                            }), None)).await;
 
                             let (chunk_tx, mut chunk_rx) = mpsc::channel::<BackendChunk>(32);
                             let gen_req = InferenceRequest {
                                 model_id,
                                 input_token_ids,
+                                tokenization_verified,
                                 max_tokens,
                                 temperature,
                                 top_p,
@@ -273,7 +302,7 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
                                             let _ = out.send(("inference.cancelled".to_string(), req_id.clone(), serde_json::json!({
                                                 "attempt_id": attempt_id,
                                                 "lease_id": lease_id,
-                                            }))).await;
+                                            }), None)).await;
                                             break;
                                         }
                                     }
@@ -285,7 +314,7 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
                                                     "lease_id": lease_id,
                                                     "chunk_index": chunk_idx,
                                                     "text": text,
-                                                }))).await;
+                                                }), None)).await;
                                                 last_idx = Some(chunk_idx);
                                                 chunk_idx += 1;
                                             }
@@ -297,18 +326,18 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
                                                     "finish_reason": finish_reason,
                                                     "claimed_input_tokens": 0,
                                                     "claimed_output_tokens": chunk_idx,
-                                                }))).await;
+                                                }), None)).await;
                                                 break;
                                             }
                                             Some(BackendChunk::Error(e)) => {
                                                 eprintln!("backend error: {e}");
-                                                let _ = out.send(("inference.complete".to_string(), req_id.clone(), serde_json::json!({
+                                                let _ = out.send(("error".to_string(), req_id.clone(), serde_json::json!({
                                                     "attempt_id": attempt_id,
                                                     "lease_id": lease_id,
-                                                    "last_chunk_index": last_idx,
-                                                    "finish_reason": "stop",
-                                                    "claimed_input_tokens": 0,
-                                                    "claimed_output_tokens": chunk_idx,
+                                                }), Some(EnvelopeError {
+                                                    code: "node_failed".to_string(),
+                                                    message: e,
+                                                    retryable: true,
                                                 }))).await;
                                                 break;
                                             }
@@ -320,7 +349,7 @@ pub async fn run_one_session<B: InferenceBackend + 'static>(
                                                     "finish_reason": "stop",
                                                     "claimed_input_tokens": 0,
                                                     "claimed_output_tokens": chunk_idx,
-                                                }))).await;
+                                                }), None)).await;
                                                 break;
                                             }
                                         }

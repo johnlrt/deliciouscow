@@ -175,15 +175,19 @@ type Payout struct {
 }
 
 type UsageRow struct {
-	RequestID       string  `json:"request_id"`
-	ModelID         string  `json:"model_id"`
-	Status          string  `json:"status"` // accepted|running|settled|refunded|cancelled|recovering
-	InputTokens     int     `json:"input_tokens"`
-	OutputTokens    int     `json:"output_tokens"`
-	ChargedPiconero *Money  `json:"charged_piconero"`
-	LatencyMS       *int64  `json:"latency_ms"`
-	CreatedAt       string  `json:"created_at"`
-	FinishedAt      *string `json:"finished_at"`
+	RequestID            string  `json:"request_id"`
+	APIKeyID             string  `json:"api_key_id"`
+	ModelID              string  `json:"model_id"`
+	Status               string  `json:"status"` // accepted|running|settled|refunded|cancelled|recovering
+	InputTokens          int     `json:"input_tokens"`
+	OutputTokens         int     `json:"output_tokens"`
+	ChargedPiconero      *Money  `json:"charged_piconero"`
+	Billable             bool    `json:"billable"`
+	TokenizationVerified bool    `json:"tokenization_verified"`
+	BillingNote          *string `json:"billing_note"`
+	LatencyMS            *int64  `json:"latency_ms"`
+	CreatedAt            string  `json:"created_at"`
+	FinishedAt           *string `json:"finished_at"`
 }
 
 type AnalyticsBucket struct {

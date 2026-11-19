@@ -48,16 +48,17 @@ type InferenceEvent struct {
 }
 
 type InferenceStartReq struct {
-	RequestID      string
-	AttemptID      string
-	LeaseID        string
-	ModelID        string
-	CatalogVersion string
-	InputTokenIDs  []int
-	InputTokens    int
-	MaxTokens      int
-	Temperature    float64
-	TopP           float64
+	RequestID            string
+	AttemptID            string
+	LeaseID              string
+	ModelID              string
+	CatalogVersion       string
+	InputTokenIDs        []int
+	InputTokens          int
+	TokenizationVerified bool
+	MaxTokens            int
+	Temperature          float64
+	TopP                 float64
 	Stop           []string
 	Seed           *int
 	DeadlineAt     time.Time
@@ -265,13 +266,14 @@ func (h *Hub) StartAttempt(ctx context.Context, nodeID string, req InferenceStar
 
 	reqID := req.RequestID
 	payload := map[string]any{
-		"attempt_id":      req.AttemptID,
-		"lease_id":        req.LeaseID,
-		"model_id":        req.ModelID,
-		"catalog_version": h.catalogVer,
-		"input_token_ids": req.InputTokenIDs,
-		"input_tokens":    req.InputTokens,
-		"max_tokens":      req.MaxTokens,
+		"attempt_id":            req.AttemptID,
+		"lease_id":              req.LeaseID,
+		"model_id":              req.ModelID,
+		"catalog_version":       h.catalogVer,
+		"input_token_ids":       req.InputTokenIDs,
+		"input_tokens":          req.InputTokens,
+		"tokenization_verified": req.TokenizationVerified,
+		"max_tokens":            req.MaxTokens,
 		"parameters": map[string]any{
 			"temperature": req.Temperature,
 			"top_p":       req.TopP,

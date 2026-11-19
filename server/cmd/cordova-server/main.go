@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -71,10 +72,19 @@ func main() {
 		log.Printf("using MoneroRPCWallet (%s, %s)", rpcURL, netName)
 	}
 
-	var tok tokenizer.Tokenizer = tokenizer.SimpleEstimator{}
+	tok, pinnedModels, err := configureTokenizer(
+		os.Getenv("TOKENIZER_URL"),
+		os.Getenv("TOKENIZER_SECRET"),
+		getenv("CATALOG_VERSION", "v1-m1"),
+		os.Getenv("TOKENIZER_MODEL_PINS_FILE"),
+	)
+	if err != nil {
+		log.Fatalf("tokenizer init: %v", err)
+	}
 	if tokURL := os.Getenv("TOKENIZER_URL"); tokURL != "" {
-		tok = tokenizer.NewHelperClient(tokURL, os.Getenv("TOKENIZER_SECRET"), "v1-m1")
-		log.Printf("using trusted tokenizer helper (%s)", tokURL)
+		log.Printf("using trusted tokenizer helper (%s, pinned_models=%d)", tokURL, pinnedModels)
+	} else {
+		log.Printf("using SimpleEstimator tokenizer (unverified, non-billable)")
 	}
 
 	authCfg, err := auth.NewConfig(pepper, insecureCookies)
@@ -131,4 +141,25 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(ctx)
+}
+
+func configureTokenizer(tokURL, tokSecret, catalogVersion, pinsPath string) (tokenizer.Tokenizer, int, error) {
+	if pinsPath != "" && tokURL == "" {
+		return nil, 0, fmt.Errorf("TOKENIZER_MODEL_PINS_FILE requires TOKENIZER_URL (SimpleEstimator cannot verify model pins)")
+	}
+	if tokURL == "" {
+		return tokenizer.SimpleEstimator{}, 0, nil
+	}
+	hc := tokenizer.NewHelperClient(tokURL, tokSecret, catalogVersion)
+	if pinsPath == "" {
+		return hc, 0, nil
+	}
+	pins, err := tokenizer.LoadModelPinsFile(pinsPath)
+	if err != nil {
+		return nil, 0, err
+	}
+	if _, err := hc.WithModelPins(pins); err != nil {
+		return nil, 0, err
+	}
+	return hc, len(pins), nil
 }

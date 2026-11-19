@@ -246,7 +246,7 @@
     },
     "InferenceStartPayload": {
       "type": "object", "additionalProperties": false,
-      "required": ["attempt_id", "lease_id", "model_id", "catalog_version", "input_token_ids", "input_tokens", "max_tokens", "parameters", "deadline_at", "kind"],
+      "required": ["attempt_id", "lease_id", "model_id", "catalog_version", "input_token_ids", "input_tokens", "tokenization_verified", "max_tokens", "parameters", "deadline_at", "kind"],
       "properties": {
         "attempt_id": { "$ref": "#/$defs/Id" },
         "lease_id": { "$ref": "#/$defs/Id" },
@@ -254,6 +254,7 @@
         "catalog_version": { "$ref": "#/$defs/Id" },
         "input_token_ids": { "type": "array", "minItems": 1, "maxItems": 8192, "items": { "type": "integer", "minimum": 0, "maximum": 2147483647 } },
         "input_tokens": { "type": "integer", "minimum": 1, "maximum": 8192 },
+        "tokenization_verified": { "type": "boolean" },
         "max_tokens": { "type": "integer", "minimum": 1, "maximum": 2048 },
         "parameters": {
           "type": "object", "additionalProperties": false,

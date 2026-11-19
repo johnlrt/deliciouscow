@@ -198,11 +198,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	inputTokens, inputTokenIDs, err := s.Tok.CountInput(model.ID, req.Messages)
+	prep, err := tokenizer.PrepareInput(s.Tok, model.ID, req.Messages)
 	if err != nil {
 		writeErr(w, r, "tokenizer_unavailable", "failed to tokenize input", nil)
 		return
 	}
+	inputTokens, inputTokenIDs := prep.InputTokens, prep.InputTokenIDs
 	if inputTokens+maxTok > model.ContextLength {
 		writeErr(w, r, "invalid_request", "prompt + max_tokens exceeds model context_length", types.ErrPtr("max_tokens"))
 		return
@@ -215,26 +216,38 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, reservation, err := ledger.ComputeReservation(inputTokens, maxTok, model.InputPricePer1MPiconero, model.OutputPricePer1MPiconero)
-	if err != nil {
-		writeErr(w, r, "invalid_request", "cost calculation overflow", nil)
-		return
+	billable := prep.Verified
+	var reservation types.Money
+	if billable {
+		_, reservation, err = ledger.ComputeReservation(inputTokens, maxTok, model.InputPricePer1MPiconero, model.OutputPricePer1MPiconero)
+		if err != nil {
+			writeErr(w, r, "invalid_request", "cost calculation overflow", nil)
+			return
+		}
 	}
 
 	if s.Metrics != nil {
 		s.Metrics.RequestsTotal.Add(1)
 	}
 
+	billingNote := ""
+	if !billable {
+		billingNote = "non_billable_unverified_tokenization"
+	}
+
 	// Create usage row
 	_ = s.Store.WithLock(func(tx *store.Tx) error {
 		tx.Usage = append(tx.Usage, store.UsageRecord{
-			RequestID:   requestID,
-			AccountID:   key.AccountID,
-			APIKeyID:    key.ID,
-			ModelID:     model.ID,
-			Status:      "accepted",
-			InputTokens: inputTokens,
-			CreatedAt:   now,
+			RequestID:            requestID,
+			AccountID:            key.AccountID,
+			APIKeyID:             key.ID,
+			ModelID:              model.ID,
+			Status:               "accepted",
+			InputTokens:          inputTokens,
+			Billable:             billable,
+			TokenizationVerified: prep.Verified,
+			BillingNote:          billingNote,
+			CreatedAt:            now,
 		})
 		return nil
 	})
@@ -269,21 +282,23 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 		attemptID := uuid.NewString()
 		leaseID := uuid.NewString()
-		reserveOp := fmt.Sprintf("reserve:%s:%d", requestID, attemptNum)
-		_, err = ledger.ExecReserve(r.Context(), s.Store, reserveOp, key.AccountID, key.ID, requestID, attemptID, reservation, s.Store.Now())
-		if err != nil {
-			if errors.Is(err, ledger.ErrInsufficientFunds) {
-				writeErr(w, r, "insufficient_funds", "insufficient available balance", nil)
-				s.markUsageTerminal(requestID, "refunded", 0, 0, startTime)
+		if billable {
+			reserveOp := fmt.Sprintf("reserve:%s:%d", requestID, attemptNum)
+			_, err = ledger.ExecReserve(r.Context(), s.Store, reserveOp, key.AccountID, key.ID, requestID, attemptID, reservation, s.Store.Now())
+			if err != nil {
+				if errors.Is(err, ledger.ErrInsufficientFunds) {
+					writeErr(w, r, "insufficient_funds", "insufficient available balance", nil)
+					s.markUsageTerminal(requestID, "refunded", 0, 0, startTime)
+					return
+				}
+				if errors.Is(err, ledger.ErrSpendCapExceeded) {
+					writeErr(w, r, "spend_cap_exceeded", "api key daily spend cap exceeded", nil)
+					s.markUsageTerminal(requestID, "refunded", 0, 0, startTime)
+					return
+				}
+				writeErr(w, r, "storage_unavailable", "reservation failed", nil)
 				return
 			}
-			if errors.Is(err, ledger.ErrSpendCapExceeded) {
-				writeErr(w, r, "spend_cap_exceeded", "api key daily spend cap exceeded", nil)
-				s.markUsageTerminal(requestID, "refunded", 0, 0, startTime)
-				return
-			}
-			writeErr(w, r, "storage_unavailable", "reservation failed", nil)
-			return
 		}
 
 		var ownerAccountID string
@@ -295,23 +310,26 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		})
 
 		evCh, cancelNode, err := s.Hub.StartAttempt(r.Context(), chosenNode, ws.InferenceStartReq{
-			RequestID:      requestID,
-			AttemptID:      attemptID,
-			LeaseID:        leaseID,
-			ModelID:        model.ID,
-			InputTokenIDs:  inputTokenIDs,
-			InputTokens:    inputTokens,
-			MaxTokens:      maxTok,
-			Temperature:    temp,
-			TopP:           topP,
-			Stop:           req.Stop,
-			Seed:           req.Seed,
-			DeadlineAt:     s.Store.Now().Add(120 * time.Second),
+			RequestID:            requestID,
+			AttemptID:            attemptID,
+			LeaseID:              leaseID,
+			ModelID:              model.ID,
+			InputTokenIDs:        inputTokenIDs,
+			InputTokens:          inputTokens,
+			TokenizationVerified: prep.Verified,
+			MaxTokens:            maxTok,
+			Temperature:          temp,
+			TopP:                 topP,
+			Stop:                 req.Stop,
+			Seed:                 req.Seed,
+			DeadlineAt:           s.Store.Now().Add(120 * time.Second),
 		})
 		if err != nil {
-			finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_, _ = ledger.ExecRefund(finCtx, s.Store, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, key.ID, spendDay, requestID, attemptID, reservation, s.Store.Now())
-			finCancel()
+			if billable {
+				finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_, _ = ledger.ExecRefund(finCtx, s.Store, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, key.ID, spendDay, requestID, attemptID, reservation, s.Store.Now())
+				finCancel()
+			}
 			lastErrCode = "node_failed"
 			lastErrMsg = "failed to dispatch to node"
 			continue
@@ -382,32 +400,38 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 					if outTok > maxTok {
 						outTok = maxTok
 					}
-					actualCost, ownerCredit, _, _ := ledger.ComputeSettlement(inputTokens, outTok, model.InputPricePer1MPiconero, model.OutputPricePer1MPiconero, model.OwnerShareBPS)
-					if actualCost > reservation {
-						actualCost = reservation
-					}
-					finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
-					_, settleErr := ledger.ExecSettle(finCtx, s.Store, "settle:"+requestID, key.AccountID, ownerAccountID, key.ID, spendDay, requestID, attemptID, reservation, actualCost, ownerCredit, s.Store.Now())
-					finCancel()
-					if settleErr != nil {
-						if req.Stream && headersSent {
-							writeSSEError(w, requestID, "storage_unavailable", "settlement failed")
-							if flusher != nil {
-								flusher.Flush()
-							}
-						} else {
-							writeErr(w, r, "storage_unavailable", "settlement failed", nil)
+					var actualCost types.Money
+					if billable {
+						var ownerCredit types.Money
+						actualCost, ownerCredit, _, _ = ledger.ComputeSettlement(inputTokens, outTok, model.InputPricePer1MPiconero, model.OutputPricePer1MPiconero, model.OwnerShareBPS)
+						if actualCost > reservation {
+							actualCost = reservation
 						}
-						s.markUsageTerminal(requestID, "recovering", outTok, actualCost, startTime)
-						hbTicker.Stop()
-						return
+						finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
+						_, settleErr := ledger.ExecSettle(finCtx, s.Store, "settle:"+requestID, key.AccountID, ownerAccountID, key.ID, spendDay, requestID, attemptID, reservation, actualCost, ownerCredit, s.Store.Now())
+						finCancel()
+						if settleErr != nil {
+							if req.Stream && headersSent {
+								writeSSEError(w, requestID, "storage_unavailable", "settlement failed")
+								if flusher != nil {
+									flusher.Flush()
+								}
+							} else {
+								writeErr(w, r, "storage_unavailable", "settlement failed", nil)
+							}
+							s.markUsageTerminal(requestID, "recovering", outTok, actualCost, startTime)
+							hbTicker.Stop()
+							return
+						}
 					}
 					settled = true
 					s.markUsageTerminal(requestID, "settled", outTok, actualCost, startTime)
 					s.Hub.NotifyAccount(key.AccountID, "usage", requestID)
-					s.Hub.NotifyAccount(key.AccountID, "billing", key.AccountID)
-					if ownerAccountID != "" && ownerAccountID != key.AccountID {
-						s.Hub.NotifyAccount(ownerAccountID, "billing", ownerAccountID)
+					if billable {
+						s.Hub.NotifyAccount(key.AccountID, "billing", key.AccountID)
+						if ownerAccountID != "" && ownerAccountID != key.AccountID {
+							s.Hub.NotifyAccount(ownerAccountID, "billing", ownerAccountID)
+						}
 					}
 
 					if req.Stream {
@@ -463,23 +487,29 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 		if clientCancelled {
 			outTok, _ := s.Tok.CountOutput(model.ID, finalText.String())
-			finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if outTok == 0 {
-				_, _ = ledger.ExecRefund(finCtx, s.Store, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, key.ID, spendDay, requestID, attemptID, reservation, s.Store.Now())
-				s.markUsageTerminal(requestID, "cancelled", 0, 0, startTime)
+			if billable {
+				finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if outTok == 0 {
+					_, _ = ledger.ExecRefund(finCtx, s.Store, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, key.ID, spendDay, requestID, attemptID, reservation, s.Store.Now())
+					s.markUsageTerminal(requestID, "cancelled", 0, 0, startTime)
+				} else {
+					actualCost, ownerCredit, _, _ := ledger.ComputeSettlement(inputTokens, outTok, model.InputPricePer1MPiconero, model.OutputPricePer1MPiconero, model.OwnerShareBPS)
+					_, _ = ledger.ExecSettle(finCtx, s.Store, "settle:"+requestID, key.AccountID, ownerAccountID, key.ID, spendDay, requestID, attemptID, reservation, actualCost, ownerCredit, s.Store.Now())
+					s.markUsageTerminal(requestID, "cancelled", outTok, actualCost, startTime)
+				}
+				finCancel()
 			} else {
-				actualCost, ownerCredit, _, _ := ledger.ComputeSettlement(inputTokens, outTok, model.InputPricePer1MPiconero, model.OutputPricePer1MPiconero, model.OwnerShareBPS)
-				_, _ = ledger.ExecSettle(finCtx, s.Store, "settle:"+requestID, key.AccountID, ownerAccountID, key.ID, spendDay, requestID, attemptID, reservation, actualCost, ownerCredit, s.Store.Now())
-				s.markUsageTerminal(requestID, "cancelled", outTok, actualCost, startTime)
+				s.markUsageTerminal(requestID, "cancelled", outTok, 0, startTime)
 			}
-			finCancel()
 			return
 		}
 
 		// Refund failed attempt
-		finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, _ = ledger.ExecRefund(finCtx, s.Store, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, key.ID, spendDay, requestID, attemptID, reservation, s.Store.Now())
-		finCancel()
+		if billable {
+			finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_, _ = ledger.ExecRefund(finCtx, s.Store, fmt.Sprintf("refund:%s:%d", requestID, attemptNum), key.AccountID, key.ID, spendDay, requestID, attemptID, reservation, s.Store.Now())
+			finCancel()
+		}
 		if !attemptFailedBeforeContent || headersSent {
 			break
 		}

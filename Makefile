@@ -1,9 +1,12 @@
-.PHONY: test build smoke config-check dev-up dev-status dev-logs dev-smoke dev-down dev-reset
+.PHONY: test build smoke config-check contracts-check dev-up dev-status dev-logs dev-smoke dev-down dev-reset
 
 config-check:
 	bash scripts/config-check.sh
 
-test: config-check
+contracts-check:
+	node scripts/contracts.mjs check
+
+test: config-check contracts-check
 	$(MAKE) -C server test
 	go build -C server ./...
 	cd node && cargo fmt --check && cargo clippy -- -D warnings && cargo test
