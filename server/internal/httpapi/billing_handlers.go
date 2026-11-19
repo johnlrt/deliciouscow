@@ -105,26 +105,22 @@ func (s *Server) handleBillingHistory(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, r, "unauthenticated", "authentication required", nil)
 		return
 	}
-	var out []types.LedgerView
-	_ = s.Store.WithReadLock(func(tx *store.Tx) error {
-		for i := len(tx.AccountLedger) - 1; i >= 0; i-- {
-			row := tx.AccountLedger[i]
-			if row.AccountID == ses.AccountID {
-				out = append(out, types.LedgerView{
-					ID:                   row.ID,
-					Kind:                 row.Kind,
-					RequestID:            row.RequestID,
-					AmountPiconero:       row.AmountPiconero,
-					BalanceAfterPiconero: row.BalanceAfterPiconero,
-					CreatedAt:            types.FormatTS(row.CreatedAt),
-					ReferenceID:          row.ReferenceID,
-				})
-			}
-		}
-		return nil
-	})
-	if out == nil {
-		out = []types.LedgerView{}
+	rows, err := ledger.GetAccountLedger(r.Context(), s.Store, ses.AccountID)
+	if err != nil {
+		writeErr(w, r, "server_error", "failed to load billing history", nil)
+		return
+	}
+	out := make([]types.LedgerView, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, types.LedgerView{
+			ID:                   row.ID,
+			Kind:                 row.Kind,
+			RequestID:            row.RequestID,
+			AmountPiconero:       row.AmountPiconero,
+			BalanceAfterPiconero: row.BalanceAfterPiconero,
+			CreatedAt:            types.FormatTS(row.CreatedAt),
+			ReferenceID:          row.ReferenceID,
+		})
 	}
 	writeJSON(w, http.StatusOK, types.Page[types.LedgerView]{Data: out, NextCursor: nil})
 }

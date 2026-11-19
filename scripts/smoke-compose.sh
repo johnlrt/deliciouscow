@@ -34,14 +34,35 @@ for forbidden in monerod monero-wallet-rpc payments; do
 done
 
 TMP_DIR="$(mktemp -d)"
-MOCK_CONTAINER=""
-cleanup() {
-  if [ -n "$MOCK_CONTAINER" ]; then
-    docker rm -f "$MOCK_CONTAINER" >/dev/null 2>&1 || true
+SMOKE_KEEP_UP="${SMOKE_KEEP_UP:-0}"
+dump_diagnostics() {
+  echo "=== COMPOSE SMOKE FAILURE DIAGNOSTICS ===" >&2
+  "${COMPOSE[@]}" --profile mock-node ps -a >&2 || true
+  local cids
+  cids="$("${COMPOSE[@]}" --profile mock-node ps -aq 2>/dev/null || true)"
+  if [ -n "$cids" ]; then
+    echo "--- Container states, exit codes, and healthchecks ---" >&2
+    for cid in $cids; do
+      docker inspect --format '{{.Name}} status={{.State.Status}} exit_code={{.State.ExitCode}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}{{if .State.Health}}{{range .State.Health.Log}} [last_hc_exit={{.ExitCode}} out={{printf "%q" .Output}}]{{end}}{{end}}' "$cid" >&2 || true
+    done
+    echo "--- Container logs ---" >&2
+    "${COMPOSE[@]}" --profile mock-node logs --no-color --tail=200 >&2 || true
   fi
-  echo "[5/5] Stopping dev Compose services (preserving persistent volumes)..."
-  "${COMPOSE[@]}" --profile mock-node down >/dev/null 2>&1 || true
+  echo "=========================================" >&2
+}
+cleanup() {
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    dump_diagnostics
+  fi
+  if [ "$SMOKE_KEEP_UP" = "1" ] && [ "$rc" -eq 0 ]; then
+    echo "[5/5] Keeping dev Compose stack and mock-node running (SMOKE_KEEP_UP=1)..."
+  else
+    echo "[5/5] Stopping dev Compose services (preserving persistent volumes)..."
+    "${COMPOSE[@]}" --profile mock-node down >/dev/null 2>&1 || true
+  fi
   rm -rf "$TMP_DIR"
+  exit "$rc"
 }
 trap cleanup EXIT
 
@@ -84,7 +105,7 @@ if [ -z "$API_KEY" ]; then
 fi
 
 echo "[4/5] Enrolling mock-node container and testing SSE completion..."
-"${COMPOSE[@]}" --profile mock-node build mock-node >/dev/null
+"${COMPOSE[@]}" --profile mock-node build mock-node
 
 # Start login in background container and capture user_code
 LOGIN_LOG="$TMP_DIR/node-login.log"
@@ -112,8 +133,7 @@ $CURL_BIN -skf -b "$COOKIE" -H "X-CSRF-Token: $CSRF" -X POST "$BASE_URL/api/node
 
 wait "$LOGIN_PID"
 
-MOCK_CONTAINER="$("${COMPOSE[@]}" --profile mock-node run -d --no-deps mock-node \
-  run --backend mock --model cordova-tiny-chat)"
+"${COMPOSE[@]}" --profile mock-node up -d --force-recreate --no-deps mock-node
 
 MODEL_READY=0
 for _ in $(seq 1 40); do
@@ -128,12 +148,18 @@ if [ "$MODEL_READY" -ne 1 ]; then
   exit 1
 fi
 
+RESP="$($CURL_BIN -skf -X POST "$BASE_URL/v1/chat/completions" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"cordova-tiny-chat","messages":[{"role":"user","content":"hello compose"}]}')"
+echo "$RESP" | grep -q "Hello from Cordova Rust node"
+
 SSE="$($CURL_BIN -skfN -X POST "$BASE_URL/v1/chat/completions" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"cordova-tiny-chat","stream":true,"messages":[{"role":"user","content":"hello compose"}]}')"
+  -d '{"model":"cordova-tiny-chat","stream":true,"messages":[{"role":"user","content":"hello compose stream"}]}')"
 
-echo "$SSE" | grep -q "Hello from Cordova Rust node"
+echo "$SSE" | grep -q "Cordova"
 echo "$SSE" | grep -q "data: \[DONE\]"
 
 echo "PASS: Compose dev smoke (nginx TLS + server + redis + kafka + tokenizer + mock-node + SSE)"
