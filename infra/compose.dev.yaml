@@ -8,6 +8,7 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.node
+    command: ["run", "--backend", "mock", "--model", "cordova-tiny-chat"]
     profiles: ["mock-node"]
     volumes:
       - mock_node_data:/root/.config/cordova-node

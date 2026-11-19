@@ -386,10 +386,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 					if actualCost > reservation {
 						actualCost = reservation
 					}
-					settleErr := s.Store.WithLock(func(tx *store.Tx) error {
-						_, e := ledger.Settle(tx, "settle:"+requestID, key.AccountID, ownerAccountID, key.ID, requestID, attemptID, reservation, actualCost, ownerCredit, s.Store.Now())
-						return e
-					})
+					finCtx, finCancel := context.WithTimeout(context.Background(), 5*time.Second)
+					_, settleErr := ledger.ExecSettle(finCtx, s.Store, "settle:"+requestID, key.AccountID, ownerAccountID, key.ID, spendDay, requestID, attemptID, reservation, actualCost, ownerCredit, s.Store.Now())
+					finCancel()
 					if settleErr != nil {
 						if req.Stream && headersSent {
 							writeSSEError(w, requestID, "storage_unavailable", "settlement failed")

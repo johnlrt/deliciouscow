@@ -19,13 +19,13 @@
 - **Windows:** Docker Desktop (включая Docker Compose v2) + PowerShell 5.1 / PowerShell 7+ (для `smoke` также используется встроенный в Windows 10/11 `curl.exe`).
 - Свободный порт `8443` на `127.0.0.1`.
 
-> По умолчанию dev-профиль запускает `nginx` (HTTPS на `https://localhost:8443`), `server`, `tokenizer`, `redis` и `kafka`. Сервисы `monerod`, `monero-wallet-rpc` и `payments` **не запускаются** (`profiles: ["payments"]`), реальные кошельки и mainnet не используются.
-> При первом запуске автоматически создаются локальные dev-секреты (`.local/dev.env`) и self-signed сертификат (`.local/certs/server.{crt,key}`). Повторный запуск их не перезаписывает.
+> По умолчанию dev-профиль запускает `nginx` (HTTPS на `https://localhost:8443`), `server`, `tokenizer`, `ranker`, `event-publisher`, `projections`, `redis`, `kafka` и контейнер `mock-node` (`dev-mock-node`). Сервисы `monerod`, `monero-wallet-rpc` и `payments` **не запускаются** (`profiles: ["payments"]`), реальные кошельки и mainnet не используются.
+> При первом запуске автоматически создаются локальные dev-секреты (`.local/dev.env`), self-signed сертификат (`.local/certs/server.{crt,key}`), демо-аккаунт (`devdemo` / `correcthorsebatterystaple` с тестовым балансом и API-ключом в `.local/demo.env`), а также подключается и запускается `mock-node` (модель `cordova-tiny-chat` сразу переходит в `available`).
 
 ### Linux / macOS
 ```sh
-./scripts/cordova-dev.sh up       # подготовка .local/, валидация Compose, сборка и запуск (или: make dev-up)
-./scripts/cordova-dev.sh status   # статус сервисов (или: make dev-status)
+./scripts/cordova-dev.sh up       # подготовка .local/, запуск dev-стека, подключение mock-node и вывод готовой команды SSE (или: make dev-up)
+./scripts/cordova-dev.sh status   # статус сервисов, включая mock-node (или: make dev-status)
 ./scripts/cordova-dev.sh logs     # просмотр логов (или: make dev-logs)
 ./scripts/cordova-dev.sh smoke    # сквозная проверка: UI, регистрация, dev-депозит, API-ключ, mock-node, SSE (или: make dev-smoke)
 ./scripts/cordova-dev.sh down     # остановка без удаления persistent volumes и .local/ (или: make dev-down)
@@ -42,7 +42,9 @@
 .\scripts\cordova-dev.ps1 reset
 ```
 
-После запуска откройте в браузере `https://localhost:8443` (потребуется подтвердить self-signed dev-сертификат).
+После выполнения `up`:
+1. Откройте в браузере `https://localhost:8443` (подтвердите self-signed dev-сертификат) — можно войти под демо-аккаунтом `devdemo` / `correcthorsebatterystaple` (или зарегистрировать новый аккаунт) и отправить запрос в `/dashboard/playground`.
+2. Либо выполните выведенную `up` команду `curl` / `curl.exe` к `https://127.0.0.1:8443/v1/chat/completions` с ключом `DEMO_API_KEY` из `.local/demo.env` для получения потокового SSE-ответа (`data: [DONE]`).
 
 ## Локальная проверка и сборка без Docker
 ```sh

@@ -21,13 +21,13 @@ rand_hex32() {
 
 if [ ! -f .local/certs/server.crt ] || [ ! -f .local/certs/server.key ]; then
   if command -v openssl >/dev/null 2>&1; then
-    openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+    MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
       -keyout .local/certs/server.key \
       -out .local/certs/server.crt \
       -subj "/CN=localhost" \
       -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
   elif command -v docker >/dev/null 2>&1; then
-    docker run --rm -v "$ROOT_DIR/.local/certs:/certs" alpine/openssl \
+    MSYS_NO_PATHCONV=1 docker run --rm -v "$ROOT_DIR/.local/certs:/certs" alpine/openssl \
       req -x509 -newkey rsa:2048 -nodes -days 365 \
       -keyout /certs/server.key \
       -out /certs/server.crt \

@@ -21,9 +21,9 @@ function Show-Usage {
 Usage: .\scripts\cordova-dev.ps1 <command> [options]
 
 Commands:
-  up              Prepare local dev config/certs, validate Compose, build & start dev stack
-  status          Show status of dev Compose services
-  logs [service]  Follow logs (optionally for a specific service)
+  up              Prepare local dev config/certs, start dev stack, enroll & start mock-node
+  status          Show status of dev Compose services (including mock-node)
+  logs [service]  Follow logs (optionally for a specific service, e.g. server or mock-node)
   smoke           Run end-to-end Compose dev smoke test (UI, auth, mock-node, SSE)
   down            Stop dev services (preserves persistent volumes and .local/ secrets)
   reset [-Yes]    Stop services AND delete persistent volumes + .local/ (requires confirmation)
@@ -90,11 +90,18 @@ function Initialize-DevEnv {
     $keyPath = Join-Path $certsDir "server.key"
     if (-not (Test-Path -LiteralPath $crtPath) -or -not (Test-Path -LiteralPath $keyPath)) {
         if (Get-Command openssl -ErrorAction SilentlyContinue) {
-            & openssl req -x509 -newkey rsa:2048 -nodes -days 365 `
-                -keyout $keyPath -out $crtPath `
-                -subj "/CN=localhost" `
-                -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" *> $null
-            if ($LASTEXITCODE -ne 0) { throw "openssl failed to generate dev certs" }
+            $prevPathConv = $env:MSYS_NO_PATHCONV
+            $env:MSYS_NO_PATHCONV = "1"
+            try {
+                & openssl req -x509 -newkey rsa:2048 -nodes -days 365 `
+                    -keyout $keyPath -out $crtPath `
+                    -subj "/CN=localhost" `
+                    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" *> $null
+                if ($LASTEXITCODE -ne 0) { throw "openssl failed to generate dev certs" }
+            }
+            finally {
+                $env:MSYS_NO_PATHCONV = $prevPathConv
+            }
         }
         else {
             & docker run --rm -v "${certsDir}:/certs" alpine/openssl `
@@ -160,6 +167,168 @@ function Assert-Port8443Available {
     }
 }
 
+function Write-ComposeDiagnostics {
+    Write-Host "=== CORDOVA DEV FAILURE DIAGNOSTICS ===" -ForegroundColor Red
+    & docker compose --env-file .local/dev.env -f infra/compose.yaml -f infra/compose.dev.yaml --profile mock-node ps -a
+    $cids = (& docker compose --env-file .local/dev.env -f infra/compose.yaml -f infra/compose.dev.yaml --profile mock-node ps -aq 2>$null)
+    if ($cids) {
+        Write-Host "--- Container states, exit codes, and healthchecks ---"
+        foreach ($cid in $cids) {
+            if ($cid) {
+                & docker inspect --format '{{.Name}} status={{.State.Status}} exit_code={{.State.ExitCode}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $cid
+            }
+        }
+        Write-Host "--- Container logs ---"
+        & docker compose --env-file .local/dev.env -f infra/compose.yaml -f infra/compose.dev.yaml --profile mock-node logs --no-color --tail=200
+    }
+    Write-Host "=======================================" -ForegroundColor Red
+}
+
+function Write-Utf8JsonFile {
+    param(
+        [string]$Path,
+        [hashtable]$Data
+    )
+    $json = ($Data | ConvertTo-Json -Depth 10 -Compress)
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $json, $utf8NoBom)
+}
+
+function Initialize-DemoAndMockNode {
+    if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
+        throw "curl.exe is required on Windows (included in Windows 10/11)."
+    }
+
+    $baseUrl = "https://127.0.0.1:8443"
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("cordova-up-" + [System.Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+    $loginJob = $null
+
+    try {
+        Write-Host "Provisioning local demo account and enrolling mock-node..."
+        Invoke-Compose @("--profile", "mock-node", "build", "mock-node")
+
+        $cookieFile = Join-Path $tmpDir "cookies.txt"
+        $bodyFile = Join-Path $tmpDir "body.json"
+        $demoUser = "devdemo"
+        $demoPass = "correcthorsebatterystaple"
+        $csrf = ""
+
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            username = $demoUser
+            password = $demoPass
+        }
+        $loginJson = (& curl.exe -sk -c $cookieFile -X POST "$baseUrl/api/auth/login" -H "Content-Type: application/json" --data-binary "@$bodyFile" 2>$null) | Out-String
+        if ($LASTEXITCODE -eq 0 -and $loginJson) {
+            try {
+                $csrf = ($loginJson | ConvertFrom-Json).csrf_token
+            }
+            catch {}
+        }
+
+        if (-not $csrf) {
+            Write-Utf8JsonFile -Path $bodyFile -Data @{
+                username               = $demoUser
+                password               = $demoPass
+                privacy_notice_version = "v1"
+            }
+            $regJson = (& curl.exe -skf -c $cookieFile -X POST "$baseUrl/api/auth/register" -H "Content-Type: application/json" --data-binary "@$bodyFile") | Out-String
+            if ($LASTEXITCODE -ne 0) { throw "Failed to register local demo account" }
+            $csrf = ($regJson | ConvertFrom-Json).csrf_token
+        }
+        if (-not $csrf) { throw "Missing csrf_token from demo authentication" }
+
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            amount_piconero = "10000000000"
+        }
+        & curl.exe -skf -b $cookieFile -H "X-CSRF-Token: $csrf" -X POST "$baseUrl/api/dev/deposit" -H "Content-Type: application/json" --data-binary "@$bodyFile" *> $null
+        if ($LASTEXITCODE -ne 0) { throw "Dev deposit failed" }
+
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            name = "dev-up-key"
+        }
+        $keyJson = (& curl.exe -skf -b $cookieFile -H "X-CSRF-Token: $csrf" -X POST "$baseUrl/api/keys" -H "Content-Type: application/json" --data-binary "@$bodyFile") | Out-String
+        if ($LASTEXITCODE -ne 0) { throw "Demo API key creation failed" }
+        $apiKey = ($keyJson | ConvertFrom-Json).secret
+        if (-not $apiKey) { throw "Missing demo API key secret" }
+
+        $demoEnvPath = Join-Path $RootDir ".local\demo.env"
+        $demoLines = @(
+            "# Auto-generated local demo credentials for https://localhost:8443",
+            "DEMO_USERNAME=$demoUser",
+            "DEMO_PASSWORD=$demoPass",
+            "DEMO_API_KEY=$apiKey",
+            ""
+        )
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($demoEnvPath, ($demoLines -join "`n"), $utf8NoBom)
+
+        $loginLog = Join-Path $tmpDir "node-login.log"
+        $loginJob = Start-Job -ScriptBlock {
+            param($dir, $log)
+            Set-Location $dir
+            & docker compose --env-file .local/dev.env -f infra/compose.yaml -f infra/compose.dev.yaml --profile mock-node run --rm -T --no-deps mock-node login --server http://server:8080 --name dev-mock-node *> $log
+        } -ArgumentList $RootDir, $loginLog
+
+        $userCode = ""
+        for ($i = 0; $i -lt 60; $i++) {
+            if (Test-Path -LiteralPath $loginLog) {
+                $content = Get-Content -LiteralPath $loginLog -Raw -ErrorAction SilentlyContinue
+                if ($content -match "enter code:\s*([A-Za-z0-9-]+)") {
+                    $userCode = $Matches[1].Trim()
+                    break
+                }
+            }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $userCode) { throw "mock-node did not output enrollment user_code" }
+
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            user_code = $userCode
+            name      = "dev-mock-node"
+        }
+        & curl.exe -skf -b $cookieFile -H "X-CSRF-Token: $csrf" -X POST "$baseUrl/api/nodes/link" -H "Content-Type: application/json" --data-binary "@$bodyFile" *> $null
+        if ($LASTEXITCODE -ne 0) { throw "mock-node link failed" }
+
+        Wait-Job $loginJob | Out-Null
+
+        Invoke-Compose @("--profile", "mock-node", "up", "-d", "--force-recreate", "--no-deps", "mock-node")
+
+        $modelReady = $false
+        for ($i = 0; $i -lt 40; $i++) {
+            $models = (& curl.exe -skf "$baseUrl/v1/models") | Out-String
+            if ($models -match '"availability":"available"') {
+                $modelReady = $true
+                break
+            }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $modelReady) { throw "Model cordova-tiny-chat did not become available after mock-node started" }
+
+        Write-Host ""
+        Write-Host "Cordova dev environment is ready (with connected mock-node):"
+        Write-Host "  Web UI:        https://localhost:8443  (self-signed dev TLS cert)"
+        Write-Host "  Demo login:    $demoUser / $demoPass  (saved in .local/demo.env)"
+        Write-Host "  Demo API key:  $apiKey"
+        Write-Host "  Model ready:   cordova-tiny-chat (availability: available)"
+        Write-Host ""
+        Write-Host "Test SSE completion right now (PowerShell):"
+        Write-Host "  '{`"model`":`"cordova-tiny-chat`",`"stream`":true,`"messages`":[{`"role`":`"user`",`"content`":`"hello`"}]}' | curl.exe -skN https://127.0.0.1:8443/v1/chat/completions -H `"Authorization: Bearer $apiKey`" -H `"Content-Type: application/json`" --data-binary `"@-`""
+        Write-Host ""
+        Write-Host "Manage stack:"
+        Write-Host "  Status:   .\scripts\cordova-dev.ps1 status"
+        Write-Host "  Logs:     .\scripts\cordova-dev.ps1 logs [service]"
+        Write-Host "  Smoke:    .\scripts\cordova-dev.ps1 smoke"
+        Write-Host "  Stop:     .\scripts\cordova-dev.ps1 down"
+    }
+    finally {
+        if ($loginJob) {
+            Remove-Job -Job $loginJob -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-Smoke {
     Require-Docker
     Require-Files
@@ -168,6 +337,9 @@ function Invoke-Smoke {
     if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
         throw "curl.exe is required on Windows for the smoke test (included in Windows 10/11)."
     }
+
+    $wasRunning = [bool](& docker compose --env-file .local/dev.env -f infra/compose.yaml -f infra/compose.dev.yaml ps -q nginx 2>$null)
+    $smokePassed = $false
 
     Write-Host "[1/5] Validating Compose configuration..."
     Invoke-Compose @("config", "-q")
@@ -180,7 +352,6 @@ function Invoke-Smoke {
 
     $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("cordova-smoke-" + [System.Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
-    $mockContainer = ""
     $loginJob = $null
 
     try {
@@ -195,18 +366,29 @@ function Invoke-Smoke {
         }
 
         $cookieFile = Join-Path $tmpDir "cookies.txt"
+        $bodyFile = Join-Path $tmpDir "body.json"
         $uname = "smoke_" + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        $regBody = "{`"username`":`"$uname`",`"password`":`"correcthorsebatterystaple`",`"privacy_notice_version`":`"v1`"}"
-        $regJson = (& curl.exe -skf -c $cookieFile -X POST "$baseUrl/api/auth/register" -H "Content-Type: application/json" -d $regBody) | Out-String
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            username               = $uname
+            password               = "correcthorsebatterystaple"
+            privacy_notice_version = "v1"
+        }
+        $regJson = (& curl.exe -skf -c $cookieFile -X POST "$baseUrl/api/auth/register" -H "Content-Type: application/json" --data-binary "@$bodyFile") | Out-String
         if ($LASTEXITCODE -ne 0) { throw "FAIL: register request failed" }
         $regObj = $regJson | ConvertFrom-Json
         $csrf = $regObj.csrf_token
         if (-not $csrf) { throw "FAIL: missing csrf_token" }
 
-        & curl.exe -skf -b $cookieFile -H "X-CSRF-Token: $csrf" -X POST "$baseUrl/api/dev/deposit" -H "Content-Type: application/json" -d '{"amount_piconero":"10000000000"}' *> $null
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            amount_piconero = "10000000000"
+        }
+        & curl.exe -skf -b $cookieFile -H "X-CSRF-Token: $csrf" -X POST "$baseUrl/api/dev/deposit" -H "Content-Type: application/json" --data-binary "@$bodyFile" *> $null
         if ($LASTEXITCODE -ne 0) { throw "FAIL: dev deposit failed" }
 
-        $keyJson = (& curl.exe -skf -b $cookieFile -H "X-CSRF-Token: $csrf" -X POST "$baseUrl/api/keys" -H "Content-Type: application/json" -d '{"name":"compose-smoke-key"}') | Out-String
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            name = "compose-smoke-key"
+        }
+        $keyJson = (& curl.exe -skf -b $cookieFile -H "X-CSRF-Token: $csrf" -X POST "$baseUrl/api/keys" -H "Content-Type: application/json" --data-binary "@$bodyFile") | Out-String
         if ($LASTEXITCODE -ne 0) { throw "FAIL: API key creation failed" }
         $apiKey = ($keyJson | ConvertFrom-Json).secret
         if (-not $apiKey) { throw "FAIL: missing API key secret" }
@@ -234,14 +416,16 @@ function Invoke-Smoke {
         }
         if (-not $userCode) { throw "FAIL: mock-node did not output enrollment user_code" }
 
-        $linkBody = "{`"user_code`":`"$userCode`",`"name`":`"compose-mock-node`"}"
-        & curl.exe -skf -b $cookieFile -H "X-CSRF-Token: $csrf" -X POST "$baseUrl/api/nodes/link" -H "Content-Type: application/json" -d $linkBody *> $null
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            user_code = $userCode
+            name      = "compose-mock-node"
+        }
+        & curl.exe -skf -b $cookieFile -H "X-CSRF-Token: $csrf" -X POST "$baseUrl/api/nodes/link" -H "Content-Type: application/json" --data-binary "@$bodyFile" *> $null
         if ($LASTEXITCODE -ne 0) { throw "FAIL: node link failed" }
 
         Wait-Job $loginJob | Out-Null
 
-        $mockContainer = (& docker compose --env-file .local/dev.env -f infra/compose.yaml -f infra/compose.dev.yaml --profile mock-node run -d --no-deps mock-node run --backend mock --model cordova-tiny-chat).Trim()
-        if ($LASTEXITCODE -ne 0 -or -not $mockContainer) { throw "FAIL: failed to start mock-node container" }
+        Invoke-Compose @("--profile", "mock-node", "up", "-d", "--force-recreate", "--no-deps", "mock-node")
 
         $modelReady = $false
         for ($i = 0; $i -lt 40; $i++) {
@@ -254,25 +438,59 @@ function Invoke-Smoke {
         }
         if (-not $modelReady) { throw "FAIL: model did not become available after mock-node started" }
 
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            model    = "cordova-tiny-chat"
+            messages = @(
+                @{
+                    role    = "user"
+                    content = "hello compose"
+                }
+            )
+        }
+        $resp = (& curl.exe -skf -X POST "$baseUrl/v1/chat/completions" `
+            -H "Authorization: Bearer $apiKey" `
+            -H "Content-Type: application/json" `
+            --data-binary "@$bodyFile") | Out-String
+        if ($LASTEXITCODE -ne 0 -or $resp -notmatch "Hello from Cordova Rust node") {
+            throw "FAIL: non-stream completion check failed"
+        }
+
+        Write-Utf8JsonFile -Path $bodyFile -Data @{
+            model    = "cordova-tiny-chat"
+            stream   = $true
+            messages = @(
+                @{
+                    role    = "user"
+                    content = "hello compose stream"
+                }
+            )
+        }
         $sse = (& curl.exe -skfN -X POST "$baseUrl/v1/chat/completions" `
             -H "Authorization: Bearer $apiKey" `
             -H "Content-Type: application/json" `
-            -d '{"model":"cordova-tiny-chat","stream":true,"messages":[{"role":"user","content":"hello compose"}]}') | Out-String
-        if ($LASTEXITCODE -ne 0 -or $sse -notmatch "Hello from Cordova Rust node" -or $sse -notmatch "data: \[DONE\]") {
+            --data-binary "@$bodyFile") | Out-String
+        if ($LASTEXITCODE -ne 0 -or $sse -notmatch "Cordova" -or $sse -notmatch "data: \[DONE\]") {
             throw "FAIL: SSE completion check failed"
         }
 
+        $smokePassed = $true
         Write-Host "PASS: Compose dev smoke (nginx TLS + server + redis + kafka + tokenizer + mock-node + SSE)"
+    }
+    catch {
+        Write-ComposeDiagnostics
+        throw
     }
     finally {
         if ($loginJob) {
             Remove-Job -Job $loginJob -Force -ErrorAction SilentlyContinue
         }
-        if ($mockContainer) {
-            & docker rm -f $mockContainer *> $null
+        if ($wasRunning -and $smokePassed) {
+            Write-Host "[5/5] Keeping dev Compose stack and mock-node running..."
         }
-        Write-Host "[5/5] Stopping dev Compose services (preserving persistent volumes)..."
-        & docker compose --env-file .local/dev.env -f infra/compose.yaml -f infra/compose.dev.yaml --profile mock-node down *> $null
+        else {
+            Write-Host "[5/5] Stopping dev Compose services (preserving persistent volumes)..."
+            & docker compose --env-file .local/dev.env -f infra/compose.yaml -f infra/compose.dev.yaml --profile mock-node down *> $null
+        }
         Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
@@ -285,15 +503,21 @@ switch ($Command) {
         Assert-Port8443Available
         Write-Host "Validating Compose configuration..."
         Invoke-Compose @("config", "-q")
-        Write-Host "Building and starting Cordova dev stack (without Monero/payments)..."
-        Invoke-Compose @("up", "-d", "--build", "--wait")
-        Write-Host ""
-        Write-Host "Cordova dev environment is ready:"
-        Write-Host "  Web UI:   https://localhost:8443  (self-signed dev TLS cert)"
-        Write-Host "  Status:   .\scripts\cordova-dev.ps1 status"
-        Write-Host "  Logs:     .\scripts\cordova-dev.ps1 logs"
-        Write-Host "  Smoke:    .\scripts\cordova-dev.ps1 smoke"
-        Write-Host "  Stop:     .\scripts\cordova-dev.ps1 down"
+        $services = (& docker compose --env-file .local/dev.env -f infra/compose.yaml -f infra/compose.dev.yaml config --services)
+        foreach ($forbidden in @("monerod", "monero-wallet-rpc", "payments")) {
+            if ($services -contains $forbidden) {
+                throw "FAIL: $forbidden must not be enabled in default dev Compose profile"
+            }
+        }
+        try {
+            Write-Host "Building and starting Cordova dev stack (without Monero/payments)..."
+            Invoke-Compose @("up", "-d", "--build", "--wait")
+            Initialize-DemoAndMockNode
+        }
+        catch {
+            Write-ComposeDiagnostics
+            throw
+        }
     }
     "status" {
         Require-Docker
@@ -302,7 +526,7 @@ switch ($Command) {
             Write-Host "Dev environment is not initialized yet (.local/dev.env missing). Run: .\scripts\cordova-dev.ps1 up"
             exit 0
         }
-        Invoke-Compose @("ps")
+        Invoke-Compose @("--profile", "mock-node", "ps")
     }
     "logs" {
         Require-Docker
@@ -310,7 +534,7 @@ switch ($Command) {
         if (-not (Test-Path -LiteralPath ".local/dev.env")) {
             throw ".local/dev.env missing. Run '.\scripts\cordova-dev.ps1 up' first."
         }
-        $logArgs = @("logs", "-f", "--tail=100")
+        $logArgs = @("--profile", "mock-node", "logs", "-f", "--tail=100")
         if ($Service) { $logArgs += $Service }
         Invoke-Compose $logArgs
     }
